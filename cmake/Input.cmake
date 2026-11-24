@@ -1,0 +1,122 @@
+include_guard(GLOBAL)
+
+include("${CMAKE_SOURCE_DIR}/cmake/gameinput.cmake")
+
+# The Microsoft.GameInput package is fetched and verified by tools/fetch-gameinput.ps1 into
+# generated/deps/gameinput. Needs a successful fetch, which leaves a marker holding the SHA-256 of
+# the pinned .nupkg.
+#
+# Sets in the caller's scope:
+#   SSHD_GAMEINPUT_INCLUDE_DIR  the v3 header directory. Targets must add it as a SYSTEM include:
+#                              the Windows SDK ships an older GameInput.h on the default include path.
+#   SSHD_GAMEINPUT_LIB          GameInput.lib, a static loader that resolves the runtime with
+#                              LoadLibrary (it imports nothing from a GameInput DLL). Link it by this
+#                              full path: the SDK's own gameinput.lib is an import library.
+#
+# The runtime is not part of the build: the user installs redist/GameInputRedist.msi, which the
+# README points to (checked here so a broken extraction is caught). A copy of its DLL next to the
+# executable would take precedence over the installed one and hide Xbox pads.
+function(sshd_input_find_gameinput)
+  set(SSHD_GAMEINPUT_DIR "" CACHE PATH
+    "Extracted Microsoft.GameInput package (default: generated/deps/gameinput/<pinned version>)")
+  if("${SSHD_GAMEINPUT_DIR}" STREQUAL "")
+    set(gameinput_dir "${CMAKE_SOURCE_DIR}/generated/deps/gameinput/${SSHD_GAMEINPUT_VERSION}")
+  else()
+    set(gameinput_dir "${SSHD_GAMEINPUT_DIR}")
+  endif()
+
+  set(marker "${gameinput_dir}/.verified-sha256")
+  # A fetch after this configure must re-run it.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${marker}")
+  set(fetch_hint "Run: pwsh -NoProfile -File tools/fetch-gameinput.ps1")
+  if(NOT EXISTS "${marker}")
+    message(FATAL_ERROR "SSHD: GameInput is not fetched (${marker} not found). ${fetch_hint}")
+  endif()
+  file(READ "${marker}" marker_hash)
+  string(STRIP "${marker_hash}" marker_hash)
+  string(TOLOWER "${marker_hash}" marker_hash)
+  string(TOLOWER "${SSHD_GAMEINPUT_SHA256}" pinned_hash)
+  if(NOT marker_hash STREQUAL pinned_hash)
+    message(FATAL_ERROR
+      "SSHD: GameInput in ${gameinput_dir} does not match the pin in cmake/gameinput.cmake. ${fetch_hint}")
+  endif()
+  foreach(path native/include/GameInput.h native/lib/x64/GameInput.lib redist/GameInputRedist.msi)
+    if(NOT EXISTS "${gameinput_dir}/${path}")
+      message(FATAL_ERROR "SSHD: ${gameinput_dir}/${path} is missing. ${fetch_hint} -Force")
+    endif()
+  endforeach()
+
+  set(SSHD_GAMEINPUT_INCLUDE_DIR "${gameinput_dir}/native/include" PARENT_SCOPE)
+  set(SSHD_GAMEINPUT_LIB "${gameinput_dir}/native/lib/x64/GameInput.lib" PARENT_SCOPE)
+
+  # Relative to the source tree so the log carries no machine-specific prefix.
+  file(RELATIVE_PATH gameinput_rel "${CMAKE_SOURCE_DIR}" "${gameinput_dir}")
+  message(STATUS "SSHD: GameInput: ${gameinput_rel}")
+endfunction()
+
+# The input libraries and tools. Call after sshd_runtime_add_core() and enable_testing().
+function(sshd_input_add)
+  if(WIN32)
+    sshd_input_find_gameinput()
+
+    # The only target that sees GameInput.h and Windows.h for gamepads; sshd_runtime_core stays free
+    # of them. The v3 header directory is a SYSTEM include so it is searched before the Windows SDK's
+    # older GameInput.h. GameInput.lib is the package's static loader (it resolves the installed
+    # runtime with LoadLibrary), so no GameInput DLL appears in an import table.
+    add_library(sshd_input_gameinput STATIC runtime/src/input/gameinput_backend.cpp)
+    target_compile_options(sshd_input_gameinput PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+    target_include_directories(sshd_input_gameinput SYSTEM PRIVATE "${SSHD_GAMEINPUT_INCLUDE_DIR}")
+    target_link_libraries(sshd_input_gameinput PUBLIC sshd_runtime_core PRIVATE "${SSHD_GAMEINPUT_LIB}")
+  endif()
+
+  if(APPLE)
+    # Objective-C++; the only target that sees the GameController headers. sshd_runtime_core stays free
+    # of Apple types. AppKit is for NSRunningApplication (the focus check), CoreHaptics for rumble.
+    add_library(sshd_input_gamecontroller STATIC runtime/src/input/gamecontroller_backend.mm)
+    target_compile_options(sshd_input_gamecontroller PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+    target_link_libraries(sshd_input_gamecontroller PUBLIC sshd_runtime_core
+      PRIVATE "-framework Cocoa" "-framework CoreHaptics" "-framework GameController")
+
+    if(TARGET sshd_game)
+      target_link_libraries(sshd_game PRIVATE sshd_input_gamecontroller)
+    endif()
+  endif()
+
+  # Pure core code behind the GamepadBackend interface; no GameInput or Windows.
+  add_executable(sshd_input_core_tests runtime/tests/input_core_test.cpp)
+  target_compile_options(sshd_input_core_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_input_core_tests PRIVATE sshd_runtime_core)
+
+  add_test(NAME input_core COMMAND sshd_input_core_tests)
+  set_tests_properties(input_core PROPERTIES
+    PASS_REGULAR_EXPRESSION "input core tests: [0-9]+ passed, 0 failed")
+
+  if(APPLE)
+    # Waits up to 3 s for a controller; exits 77 (skipped) when none is connected.
+    add_executable(sshd_input_gamecontroller_tests runtime/tests/input_gamecontroller_test.cpp)
+    target_compile_options(sshd_input_gamecontroller_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+    target_link_libraries(sshd_input_gamecontroller_tests PRIVATE sshd_input_gamecontroller
+      "-framework CoreFoundation")
+
+    add_test(NAME input_gamecontroller COMMAND sshd_input_gamecontroller_tests)
+    set_tests_properties(input_gamecontroller PROPERTIES
+      SKIP_RETURN_CODE 77
+      PASS_REGULAR_EXPRESSION "input gamecontroller tests: [0-9]+ passed, 0 failed")
+  endif()
+
+  if(WIN32)
+    # Exits 77 (skipped) when no GameInput runtime with API version 3 is available.
+    add_executable(sshd_input_gameinput_tests runtime/tests/input_gameinput_test.cpp)
+    target_compile_options(sshd_input_gameinput_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+    target_link_libraries(sshd_input_gameinput_tests PRIVATE sshd_input_gameinput)
+
+    add_test(NAME input_gameinput COMMAND sshd_input_gameinput_tests)
+    set_tests_properties(input_gameinput PROPERTIES
+      SKIP_RETURN_CODE 77
+      PASS_REGULAR_EXPRESSION "input gameinput tests: [0-9]+ passed, 0 failed")
+
+    add_executable(sshd_padtool tools/sshd_padtool/main.cpp)
+    target_compile_options(sshd_padtool PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+    target_link_libraries(sshd_padtool PRIVATE sshd_input_gameinput)
+  endif()
+endfunction()

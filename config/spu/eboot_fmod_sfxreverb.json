@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "image": "eboot_fmod_sfxreverb",
+  "input": {
+    "container_sha256": "e6a286c20571264388a5ad93c42903de9b9a00c42595a4f4334c1441bfce89a1",
+    "image_sha256": "441a1f7b01055773a43a02c715fc9c2bbf0dad8ed90049d20cac5ff21c622e73",
+    "registry_entry_sha256": "9756d12cf90d9287df3390cb78af5dcaec0d870fbee69e78f85d612273b90d75"
+  },
+  "segments": [{"ls": "0x80", "size": "0x3e70", "code": true}, {"ls": "0x3f00", "size": "0x10", "code": false}],
+  "entry": "0x3c78",
+  "functions": [
+    {
+      "entry": "0x3c78",
+      "sources": ["entry"],
+      "ranges": [["0x3c40", "0x3c74"], ["0x3c78", "0x3c7c"]],
+      "call_sites": [],
+      "returns": ["0x3c70"],
+      "indirect": []
+    },
+    {
+      "entry": "0x3cf0",
+      "sources": ["data"],
+      "ranges": [["0x3c80", "0x3cec"], ["0x3cf0", "0x3d00"]],
+      "call_sites": [],
+      "returns": ["0x3cc0", "0x3ce8"],
+      "indirect": []
+    }
+  ],
+  "dispatch_seeds": [{"ls": "0x3c78", "sources": ["entry"]}, {"ls": "0x3cf0", "sources": ["data"]}],
+  "jump_tables": [],
+  "constant_targets": [],
+  "unresolved_indirect": []
+}

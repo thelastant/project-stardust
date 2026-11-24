@@ -1,0 +1,112 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 29, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "clang-ninja",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_COMPILER_TARGET": "x86_64-pc-windows-msvc",
+        "CMAKE_CXX_COMPILER_TARGET": "x86_64-pc-windows-msvc",
+        "CMAKE_LINKER_TYPE": "LLD",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "macos-clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/macos-homebrew-llvm.cmake",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "debug",
+      "inherits": "clang-ninja",
+      "displayName": "Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "release",
+      "inherits": "clang-ninja",
+      "displayName": "Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "pgo-generate",
+      "inherits": "release",
+      "displayName": "Release (LLVM PGO training)",
+      "binaryDir": "${sourceDir}/build/pgo-generate",
+      "cacheVariables": { "SSHD_PGO_GENERATE": "ON" }
+    },
+    {
+      "name": "pgo-use",
+      "inherits": "release",
+      "displayName": "Release (LLVM PGO optimized)",
+      "binaryDir": "${sourceDir}/build/pgo-use"
+    },
+    {
+      "name": "profile",
+      "inherits": "clang-ninja",
+      "displayName": "Profile (Release code with line tables and PDBs)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_FLAGS": "-gline-tables-only -gcodeview",
+        "CMAKE_CXX_FLAGS": "-gline-tables-only -gcodeview",
+        "CMAKE_EXE_LINKER_FLAGS": "-Wl,/DEBUG",
+        "CMAKE_SHARED_LINKER_FLAGS": "-Wl,/DEBUG"
+      }
+    },
+    {
+      "name": "release-wwoff",
+      "inherits": "release",
+      "displayName": "Release, RSX write watch off",
+      "cacheVariables": { "SSHD_RSX_WRITE_WATCH": "OFF" }
+    },
+    {
+      "name": "macos-debug",
+      "inherits": "macos-clang",
+      "displayName": "macOS Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "macos-release",
+      "inherits": "macos-clang",
+      "displayName": "macOS Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "pgo-generate", "configurePreset": "pgo-generate" },
+    { "name": "pgo-use", "configurePreset": "pgo-use" },
+    { "name": "profile", "configurePreset": "profile" },
+    { "name": "release-wwoff", "configurePreset": "release-wwoff" },
+    { "name": "macos-debug", "configurePreset": "macos-debug" },
+    { "name": "macos-release", "configurePreset": "macos-release" }
+  ],
+  "testPresets": [
+    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "pgo-generate", "configurePreset": "pgo-generate", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "pgo-use", "configurePreset": "pgo-use", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "profile", "configurePreset": "profile", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "release-wwoff", "configurePreset": "release-wwoff", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "macos-debug", "configurePreset": "macos-debug", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "macos-release", "configurePreset": "macos-release", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } }
+  ]
+}

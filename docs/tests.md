@@ -1,0 +1,155 @@
+# Tests
+
+## CTest targets
+
+`tools/build.ps1 -Test` (Windows) and `tools/build.sh --test` (macOS) run the registered CTest
+targets except those with one of the labels below; `ctest --preset <preset>` does the same after a build. These
+targets are slow or need local game data, so run them when the change calls for it:
+
+| Label | Targets | Run them |
+| --- | --- | --- |
+| `run` | `game_boot`, `rsx_replay`, `rsx_replay_repeat`, and the `bench_rsx_fifo_<name>` and `bench_spu_replay_<name>` entries of local captures: they run the game or replay a capture of it | when a change is reported to break the running game, or before a release |
+| `dumps` | `fp_translator_dumps`: translates and compiles every fragment program dumped under `generated/rsx` | after a change to the fragment translator |
+| `eboot` | `tools_unittest_eboot`: the Python tests of `test_real_eboot.py` on the real executable (recovery, emitting, disassembly statistics) | after a change to the PPU tools under `tools/ps3recomp` |
+
+```sh
+ctest --test-dir build/<preset> -L run --output-on-failure   # only the run targets
+ctest --test-dir build/<preset> --output-on-failure          # every target
+```
+
+Without `--preset`, CTest applies no label filter. With a test preset, `-L <label>` selects nothing for these labels,
+because the preset already excludes them.
+
+Targets that need the game or local
+files are registered only when those are configured, and configuration prints why one is not. Targets
+marked Windows only or macOS only exist on that system only; the others are registered everywhere.
+Targets that need a device or a window exit with code 77, which CTest reports as skipped, when the
+machine has none.
+
+| Target | What it checks | Needs |
+| --- | --- | --- |
+| `crypto_core` | The host crypto library `sshd_crypto` (CNG on Windows, CommonCrypto on macOS) against published vectors: AES (FIPS-197), CBC (SP 800-38A), AES-CMAC (RFC 4493), HMAC-SHA1 (RFC 2202) and SHA-256 (FIPS 180-4) | - |
+| `decrypt_core` | `sshd_decrypt` on synthetic data: crypto known answers, key file parsing, SCE packages, SELF reassembly, PUP and TAR reading, and the command line | - |
+| `decrypt_eboot` | `sshd_decrypt self` on the real `EBOOT.BIN`; the output must match the pin of `EBOOT.elf` (the file is written under `build/<preset>/decrypt_test`) | `-EbootBin` |
+| `decrypt_libsre` | `sshd_decrypt pup` on the real `PS3UPDAT.PUP`; the output must match the pin of `libsre.prx` | `-Pup` |
+| `decrypt_libsre_reloc` | `sshd_decrypt reloc` on `generated/inputs/libsre.prx` at `0x02000000`; the output must match the pin of `libsre.reloc.elf` (written under `build/<preset>/decrypt_test`). The input file is written by the build step before this test runs | `-Pup` |
+| `decrypt_font` | `sshd_decrypt pup --raw` on the real `PS3UPDAT.PUP`; the output must match the pin of `SCE-PS3-SR-R-JPN.TTF` | `-Pup` |
+| `runtime_version`, `runtime_musttail` | The runtime stub starts, and the compiler supports `musttail` | - |
+| `tools_unittest` | The Python unit tests (below) except `test_real_eboot.py`, which CTest leaves out by setting `SSHD_SKIP_REAL_EBOOT`. CTest passes `SSHD_EBOOT_ELF` and `SSHD_LIBSRE_ELF` to them, so they include the other real-executable tests when `-EbootElf` or `-EbootBin` is given, and the real-libsre tests when `-Pup` is given | - |
+| `tools_unittest_eboot` | `test_real_eboot.py` on the real executable (label `eboot`) | `-EbootElf` or `-EbootBin` |
+| `ppu_header_check`, `ppu_semantics` | Contract header and the semantics harness (see [Emitting C](emitter.md)) | - |
+| `ppu_link` | The generated code of the executable and of libsre links; the function mappings, imports and export table of both trees register and pass the checks of `runtime/tests/ppu_link_test.cpp` | `-GeneratedDir` (with the libsre tree under `<dir>/libsre`) |
+| `runtime_core` | Runtime core unit tests (memory, threads, lv2, HLE, VFS, fake RSX, the module loader and the libsre layout check; the list is below). On a host whose page is larger than the 4 KiB logical page (Apple Silicon: 16 KiB) `testLogicalPagesSharingAHostPage` checks that a host page stays committed while one of its logical pages is, and that a logical page committed in a kept host page is zero-filled. It also covers the pad interception of system dialogs and its release phase (`testCellPadIntercept`) and `cellSaveData` with a scripted dialog driver: the list, the confirmation loop, Fixed saves without a confirmation and the error messages (`testCellSaveData`) | - |
+| `save_dialog` | The save data dialog without a window or a game (see [Save data dialog](runtime.md#save-data-dialog)). The model runs on an injected clock, so nothing sleeps: input edges, d-pad and stick auto-repeat, L1/R1 jumps, the circle/cross assignment, the fade-in and fade-out, scrolling, clamping and the results of a list, a Yes/No and an OK dialog. The text: sizes, dates, confirmation and error texts. The Auto and Cancel drivers, the board and the driver registry. The interactive driver runs against a fake pad provider: a list answered by pad input (in all three PPU thread modes), a message answered by pad input, a dialog with no drawer or whose drawer fails during the wait answering as cancelled, a refused `DRAWING_BEGIN`, and `cellMsgDialogOpen2` answering BUSY while a dialog is open | - |
+| `spu_header_check` | The SPU contract headers (`spu_context.h`, `spu_ops.h`, `spu_fp.h`, `spu_lower_stackfree.h`) compile as C23, as C++26 and with `-ffreestanding`, and a run-time check of the context layout, the inline helpers and the stack-free macros against a minimal dispatcher passes (`spu header ok`) | - |
+| `spu_vector_helpers` | The vector forms of the SPU single-precision arithmetic (`fa`, `fs`, `fm`, `fma`, `fms`, `fnms`), run in the SPU MXCSR (round toward zero, FTZ, DAZ; on arm64 the same environment is FPCR with round toward zero and FZ, and `shufb` uses NEON `tbl`), match the scalar `sshdSpuSf*` functions of `spu_fp.h` run in round to nearest, also over a grid of edge words (denormals, -0, the limits, exponent 255); the helpers that switch MXCSR give the same words in both environments; and the `pshufb` form of `shufb` matches a byte loop that follows the ISA, on random words weighted toward zero and denormal exponents, exponent 255, results near the limits and cancellation (`spu vector helpers ok`) | - |
+| `spu_semantics` | The SPU instruction semantics: hand-derived cases per op group (`tools/tests/spu_semantics/cases_<group>.py`, from the SPU ISA text) go through the real recovery and emitter, are compiled like emitted code and run natively (see [Emitting C](emitter.md#semantics-harness)). Pass case names as arguments to run only those | - |
+| `spu_link` | The generated SPU tree links with the stub runtime, its image tables have the expected shape (hashes, segments, entries) and every entry can be dispatched once with a halt request set, so no SPU code runs (`spu link ok`) | `-GeneratedDir` (with `spu/` under it) |
+| `spu_runtime` | The SPU runtime in `sshd_runtime_core` on synthetic images and plain host buffers: the reservation table (including the race window through a test seam, stripe sharing, wake-ups and stress runs), SPU threads and the dispatcher (flat host stack over 10,000 transfers, transfers across images, image tracking and its edge cases), MFC commands, mailboxes, events and the decrementer, lv2 thread group start, exit, terminate, join and teardown, the `[spu XXXXXXXX]` log prefix, the supervisor and the census. The fatal stops run in child processes | - |
+| `spu_programs` | Four assembled SPU programs (a sum over an array, an atomic counter, a jump table, an event throw) go through recovery, the emitter and the runtime: they run as a thread group of up to 6 threads on the real runtime and their results are checked | - |
+| `spu_lzma_inflate` | The recompiled Edge LZMA inflate routine of the game's LZMA task decompresses a real item of `TLFILE.TLDAT` on one SPU thread, chunk by chunk as the task does, and the SHA-256 of the output must be `f4ad1f71...c751` (the value of the reference decoder). A second line gives the time spent in the recompiled code and the throughput (about 25 MB/s at `-O3` on the development machine, 3.7 MB/s at `-O1`); it is not checked. Timeout 120 s | `-GeneratedDir`, `-GameDir` and `-EbootElf` or `-EbootBin` |
+| `render_window` | macOS only. Opens a real Cocoa window and presents three frames to it (see [Vulkan on macOS](rendering.md#vulkan-on-macos)). It runs in `main`, because the window belongs to the main thread. Exit code 77 (skipped) when there is no window-server session. Runs serially, because it opens a window | a logged-in session and a Vulkan 1.3 device |
+| `render_core`, `vp_translator`, `fp_translator`, `fp_translator_dumps` | Renderer and shader translators (see [Rendering](rendering.md)). `vp_translator` and `fp_translator_dumps` translate every program dumped under `generated/rsx`: the known ones are compared with their expected GLSL, the others must compile when they translate, and the programs the translators report are counted by report text in a printed summary, not failed (the tree has 33 vertex and 749 fragment dumps). `render_core` also covers the stencil state (decode, the zeta write rule, the test itself and a stencil-only pass followed by a read of the depth surface as a texture), user clip planes (decode and clipping), rebinding a target at another size (the overlap copy, its skips and the counted refusals) and vertex program condition codes drawn on the device. `vp_translator` also checks the condition code update and its fallback destination, conditional writes, the vector-before-scalar order and the user clip distance output. `render_core` also checks the idle present rule (`idlePresentDue`: 100 ms after the last flip, then every 33 ms, measured from the last real flip) and that `presentIdle` does nothing without a presenter and never counts as a flip | a Vulkan 1.3 device for the rendering parts |
+| `rsx_replay` | Replays a local capture and, when a reference image is pinned, compares the result with it | a local capture (see [Capture and replay](rendering.md#capture-and-replay)) |
+| `media_core` | PAMF parser and demuxer, the movie player and the cellSail HLE on synthetic data, with fake codecs (inherited code that this game does not use, see [Movies](movies.md)) | - |
+| `media_ffmpeg` | The FFmpeg loader, the H.264 and ATRAC3plus decoders (the movie decoder and the raw-frame decoder behind `cellAtrac`) and the colour and PCM conversion, all on synthetic data | the fetched FFmpeg DLLs (Windows), Homebrew's FFmpeg (macOS) |
+| `audio_core` | Audio on synthetic data, with no device and no FFmpeg: the block ring, null output, WAV writer and reader, `wavStats`, `BlockClock` and its correction, the clock controller against a fake device, the engine with fake producers and outputs, the `cellAudio` state and handlers on synthetic guest memory, the AT3 parser, and the `cellAtrac` stream model and handlers with a fake decoder | - |
+| `audio_wasapi` | Windows only. The WASAPI output: device loss and reopen, priming, high-water drops and the fill level on fake streams, then (when a render device exists) opening the default device, playing silence and a real device loss and reopen. Exit code 77 (skipped) when the machine has no render device. Runs serially, because it measures timing | a render device for the real-device part |
+| `audio_coreaudio` | macOS only. The CoreAudio output and the device-thread code it shares with WASAPI (`sshd_audio_stream`): a failing open is reported, priming, high-water drops, device loss and reopen on fake streams, then (when a default output device exists) opening the real one and playing silence. Exit code 77 (skipped) when everything else passed but the machine has no output device. Runs serially, because it measures timing | an output device for the real-device part |
+| `overlay_core` | The debug overlay (see [Debug overlay](runtime.md#debug-overlay)): the flip statistics (flips per second, the frame-time ring, draw and skip deltas), the refresh intervals of the audio and unimplemented providers, the panels drawn headless on a private ImGui context with full and empty sources, the runtime providers (flip limiter, `rsx unimplemented` counts, log level; no audio engine or RSX thread runs), and the `F1` toggle and key gate. With a Vulkan device it also records the overlay over an offscreen image twice (title bar lit, far corner untouched), then a second overlay on the same device, and, on Windows only, feeds a Win32 mouse move through a hidden window; it passes when the validation layer reports no error. For the save data dialog it covers the overlay stack (merged requests, draw order, `wantsDraw` and `wantsIdlePresent` of the children), the font candidate order and validation, the code points an atlas needs for a dialog, and, with a device, the save dialog overlay recorded over an offscreen image (a message, a list with the legend and scrollbar, the atlas rebuilds and the icon textures); the check reads the pixels back, and the validation layer must report no error Without a device it prints `overlay tests: vulkan: skipped (<reason>)` and still passes | a Vulkan 1.3 device for the recording parts |
+| `input_core` | Gamepad code behind the backend interface, with a fake backend and no GameInput or GameController: value, reading and device formatting; the `--pad-probe` logic (a line per change, one `no gamepad reading` per device, devices coming and going, the `SteamVirtualGamepadInfo` lines); the button table, dead zone, stick bytes, trigger threshold, merging of pads and motor conversion; Steam virtual path parsing, `SDL_GAMECONTROLLER_IGNORE_DEVICES` parsing and the selection rule (recorded runs, a virtual pad, the ignore list, no Steam); the hub (use of a pad, removal, two pads, a virtual pad and its physical pad, the focus gate, vibration, the provider following plugging) and the gamepad thread with a fake backend (unavailable backend, feeding the pad, start lines, probe alone); and the table that turns macOS key codes into PC scan codes (`testMacKeyCodes`, run on every platform) | - |
+| `input_gameinput` | Windows only. The GameInput backend: the Steam context, then (with a GameInput runtime of API version 3) the device list, unique non-zero ids, a stable device generation, and `read`, `readRaw` and `setRumble` on unknown ids. No pad has to be connected. Exit code 77 (skipped) with the reason when no such runtime is installed | a GameInput runtime for all but the Steam context part (see [Input](input.md#the-gameinput-runtime-and-the-gameinput-unavailable-warning)) |
+| `input_gamecontroller` | macOS only. The GameController.framework backend: the Steam context (environment variables only) and the behaviour for unknown device ids need no controller. The rest needs one: the program waits up to 3 s for the framework to report a controller, then checks the device list and the readings. For each controller with haptics it also drives the low-frequency and the high-frequency motor, so that a person holding it can feel them. It exits with code 77 (skipped) if everything else passed but no controller arrived | a connected controller for the device part |
+| `game_boot` | The game reaches a milestone in a 30 s run (below) | `-GeneratedDir`, `-GameDir`, `-Pup` and `-EbootElf` or `-EbootBin` |
+
+The tests `write_watch_os`, `bench_rsx_write_watch` and `bench_rsx_write_watch_first` need the Windows write
+watch and are registered on Windows only (the benchmark program `sshd_bench` builds on macOS without that case).
+
+`rsx_replay` is registered when the capture named in `cmake/rsx_replay.cmake` exists under
+`generated/rsx/captures/`. While `SSHD_RSX_REPLAY_REFERENCE_SHA256` in that file is empty, as it is
+now, the test only replays the capture and checks the summary line. With a SHA-256 set, the test
+also needs the matching reference image and applies the difference thresholds.
+
+This game has no `.sdat` files and its movies are not PAMF, so there are no SDAT tests, no media
+tests that read game files, and no pad-script or audio-content runs of the game. The synthetic
+tests of the inherited media and audio code remain.
+
+## The `game_boot` test
+
+CTest registers `game_boot` only when `SSHD_PPU_GENERATED_DIR`, `SSHD_EBOOT_ELF`, `SSHD_GAME_DIR` and
+`SSHD_PUP` are all set (`-GeneratedDir`, `-EbootElf`, `-GameDir`, `-Pup`); otherwise configuration prints
+which of them is empty. `-EbootBin` also sets `SSHD_EBOOT_ELF`, to the produced
+`generated/inputs/EBOOT.elf`, unless `-EbootElf` is given. `-Pup` is needed because the run loads libsre:
+the test passes `--libsre generated/inputs/libsre.reloc.elf`. It runs
+`sshd_game --game-dir <dir> --elf <elf> --libsre <libsre.reloc.elf>` with the arguments from the pin
+file (the run keeps its game data in `build/<preset>/hdd`), with a 60 s time limit, and passes when
+the output matches the milestone regular expression. The exit code is not checked. The pin file passes
+`--no-config`, so a `config.json` in the working directory or next to `sshd_game` never changes the
+run; do the same in every other scripted run of `sshd_game`.
+
+The pin file `cmake/game_boot.cmake` holds the arguments and the milestone:
+
+```cmake
+set(SSHD_GAME_BOOT_ARGS "--no-config --no-window --seconds 30 --hdd-dir \"${CMAKE_BINARY_DIR}/hdd\"")
+set(SSHD_GAME_BOOT_MILESTONE "\\[t 01000000\\] sshd: first hle cellSpurs::cellSpursEventFlagTryWait")
+```
+
+The milestone is the main thread's first call of `cellSpursEventFlagTryWait`, the last
+`sshd: first ...` line of the main thread. The game reaches it only after the first LZMA batch of the
+SPURS engine tasks has run on the recompiled SPU code, so a run that stops earlier (an SPU stop, a
+stall, or the watchdog before the batch ends) leaves the pattern unmatched. The line first appears at
+12 to 14 s when the hdd directory already holds the installed game data and at 14 to 16 s from an empty
+directory; the test must pass from both. The run is limited to 30 s because the milestone appears
+within 16 s and a longer run only adds time. A run that passes ends with
+`sshd: stop: watchdog 30 s` (exit code 5), which the test does not check. The milestone guards how far
+the main thread gets; it does not mean that the game works.
+
+Earlier pins were the main thread's `first sc 350` line (before libsre was loaded) and the stop line of
+the first `sys_spu_thread_group_start`. Each moved on purpose when the game got further. When a change
+lets the game get further again, run `sshd_game --game-dir <dir> --elf <elf> --libsre <libsre.reloc.elf>
+--no-config --no-window --seconds 30 --hdd-dir <dir>` three times, from an empty directory and from one with
+existing game data, take a line that appears in every run (the last main-thread `sshd: first ...`
+line, or the stop line if the run stops) and set the milestone to it. Update only that file; the test
+then guards against regressions.
+
+Audio code is covered by `audio_core`, by `runtime_core` (`testEventQueueIpcKeys`,
+`testPpuThreadCreatePriority`, `testTimerResolution`) and by `media_ffmpeg` (`testAtracFrameDecoder`).
+
+The tests of `runtime_core` that cover the libsre support are `testLoadModule` (the PRX loader and its
+refusals), `testLibsreLayout` (the structural checks of the layout header, passing on synthetic guest
+memory and failing once per check), `testDispatchSpans` (one dispatch span per image),
+`testHleGuestExports`, `testModuleImports` and `testGuestExportConflicts` (binding the executable's
+imports to libsre's exports, libsre's own import table, and the conflict check),
+`testProcessAndPageSyscalls` (system calls 1, 14, 25, 131 and 351), `testSpuThreadGroups` and
+`testSpuImageImport` (the SPU thread group bookkeeping and the image import), `testSpuPrintfCallbacks`,
+`testPrxModuleId` and `testProcessParamsfo`, `testLwcond`, `testGuestPrintf` and
+`testSysPrxForUserLibc` (the printf formatter and the string, printf and abort handlers), and
+`testSpuJoinNotInitialized` (a join on a group that is not fully initialised does not wait). Tests that
+run a child process, because the stop ends the process, include `testOverlappingSpanChild`,
+`testAbortChild` and `testSpuStartChild` (a group started with no SPU images registered stops at its
+first dispatch, `unknown target ls 0x00818 ... (untracked)`). The execution of SPU code is tested by
+`spu_runtime`, `spu_programs` and `spu_lzma_inflate`, not here.
+
+## Python unit tests
+
+Python unit tests use synthetic ELF and PRX files built in memory. The NPEA00014 executable pin
+smoke test is skipped unless `SSHD_EBOOT_ELF` points at the user's decrypted executable.
+`test_real_libsre.py` (recovery of the committed `config/libsre_functions.json`) is skipped unless
+`SSHD_LIBSRE_ELF` points at `generated/inputs/libsre.reloc.elf`. Optional Ghidra comparison tests
+need `SSHD_GHIDRA_JSON`, a local export written by `ghidra-export --cell`; tests never run Ghidra
+themselves. No test requires or packages game files.
+
+```sh
+python -m unittest discover -s tools/tests -t tools -v
+SSHD_EBOOT_ELF=game/EBOOT.elf python -m unittest discover -s tools/tests -t tools -v
+SSHD_EBOOT_ELF=game/EBOOT.elf SSHD_LIBSRE_ELF=generated/inputs/libsre.reloc.elf SSHD_GHIDRA_JSON=generated/ghidra/eboot_ghidra_cell.json python -m unittest discover -s tools/tests -t tools -v
+```
+
+Tests that require local game or firmware artifacts are skipped unless their environment variables
+are set. When target pins or recovery databases change, update their target-specific smoke tests
+from the new local tool output.
+
+On macOS use `python3` (3.10 or newer) in these commands. `test_fetch_ffmpeg_sh.py` tests `tools/fetch-ffmpeg.sh`
+(usage errors, a zip with the wrong hash, an up-to-date marker, a zip with an unsafe entry) in a temporary
+directory with a stub in place of `curl`, so it uses no network; `SSHD_FETCH_FFMPEG_ROOT` points the script at a
+copy of the pin file, for the tests only. It is skipped unless the system is POSIX with an `sh`.

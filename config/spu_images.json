@@ -1,0 +1,833 @@
+{
+  "schema": 1,
+  "images": [
+    {
+      "name": "eboot_edgezlib_deflate",
+      "container": "eboot",
+      "ea": "0x00704f80",
+      "kind": "elf",
+      "role": "spurs_task",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_edgezlib_inflate",
+      "container": "eboot",
+      "ea": "0x00711200",
+      "kind": "elf",
+      "role": "spurs_task",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0x91f0",
+          "reason": "indirect call target of bisl $0,$6 at LS 0x962c; $6 is not a recoverable constant"
+        },
+        {
+          "ls": "0x8f18",
+          "reason": "callback passed in $5 via ila $24,0x8f18 at LS 0x9070, called through bisl $0,$80 at LS 0x9a0c"
+        },
+        {
+          "ls": "0x4520",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x74; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x45a0",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xf4; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x45d0",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x124; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x46d8",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x22c; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x4734",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x288; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x4814",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x368; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x488c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x3e0; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x48ec",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x440; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x4b88",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x6dc; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x4c5c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x7b0; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x4e9c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x9f0; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x4ef8",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xa4c; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x4f48",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xa9c; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x513c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xc90; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x51f4",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xd48; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5200",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xd54; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x520c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xd60; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x52b8",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xe0c; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5378",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xecc; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5388",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0xedc; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5630",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x1184; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x578c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x12e0; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x57d4",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x1328; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x586c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x13c0; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5880",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x13d4; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x58e4",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x1438; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x593c",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x1490; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5954",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, entry 0x14a8; recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5d08",
+          "reason": "jump-table target of bi $2 at LS 0x5cc0 (runtime trace; unowned code range 0x5d08..0x5dd4)"
+        },
+        {
+          "ls": "0x5874",
+          "reason": "jump-table target of bi $2 at LS 0x44a8; table at LS 0x44ac, index 28 (clgti bound 28), word 0x13c8; recovery misses the 29th entry"
+        },
+        {
+          "ls": "0x5cd8",
+          "reason": "jump-table target of bi $2 at LS 0x5cc0; table at LS 0x5cc4, index 0 (word 0x14); recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5d88",
+          "reason": "jump-table target of bi $2 at LS 0x5cc0; table at LS 0x5cc4, index 2 (word 0xc4); recovery cannot resolve $2"
+        },
+        {
+          "ls": "0x5da0",
+          "reason": "jump-table target of bi $2 at LS 0x5cc0; table at LS 0x5cc4, index 3 (word 0xdc); recovery cannot resolve $2"
+        }
+      ]
+    },
+    {
+      "name": "eboot_fmodex_spu",
+      "container": "eboot",
+      "ea": "0x00719a00",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0x1c0",
+          "reason": "Observed indirect target from eboot_fmodex_spu at 0xa380 during bounded runtime"
+        },
+        {
+          "ls": "0x418",
+          "reason": "Observed indirect target from eboot_fmodex_spu at 0xa404 during bounded runtime"
+        },
+        {
+          "ls": "0x9498",
+          "reason": "Observed indirect target from eboot_fmodex_spu at 0x2794 during uncapped runtime"
+        },
+        {
+          "ls": "0x94a8",
+          "reason": "Observed indirect target from eboot_fmodex_spu at 0x8418 during uncapped runtime; verified function prologue after return at 0x9494"
+        }
+      ]
+    },
+    {
+      "name": "eboot_fmodex_decode",
+      "container": "eboot",
+      "ea": "0x00734f00",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_adpcm",
+      "container": "eboot",
+      "ea": "0x0074d300",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0x24c0",
+          "reason": "Observed relocated target 0x24a70 from eboot_fmodex_spu branch 0x8654; normalized using the tracked ADPCM load delta to valid instruction boundary 0x24c0"
+        },
+        {
+          "ls": "0x1d10",
+          "reason": "Observed relocated target 0x242c0 from eboot_fmodex_spu branch 0x888c; normalized using the tracked ADPCM load delta to valid instruction boundary 0x1d10"
+        },
+        {
+          "ls": "0x37b8",
+          "reason": "Observed relocated target 0x25d68 from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x37b8"
+        },
+        {
+          "ls": "0x375c",
+          "reason": "Observed relocated target 0x25d0c from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x375c"
+        },
+        {
+          "ls": "0x3810",
+          "reason": "Observed relocated target 0x25dc0 from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x3810"
+        },
+        {
+          "ls": "0x37fc",
+          "reason": "Observed relocated target 0x25dac from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x37fc"
+        },
+        {
+          "ls": "0x37b0",
+          "reason": "Observed relocated target 0x25d60 from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x37b0"
+        },
+        {
+          "ls": "0x37c8",
+          "reason": "Observed relocated target 0x25d78 from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x37c8"
+        },
+        {
+          "ls": "0x3770",
+          "reason": "Observed relocated target 0x25d20 from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x3770"
+        },
+        {
+          "ls": "0x3714",
+          "reason": "Observed relocated target 0x25cc4 from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x3714"
+        },
+        {
+          "ls": "0x3490",
+          "reason": "Observed relocated target 0x25a40 from eboot_fmod_adpcm branch 0x3450 during uncapped run; normalized to executable instruction boundary 0x3490"
+        },
+        {
+          "ls": "0x3778",
+          "reason": "Bounded case from relative switch table at 0x3454 (entry 0x31c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3788",
+          "reason": "Bounded case from relative switch table at 0x3454 (entry 0x334); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3798",
+          "reason": "Bounded case from relative switch table at 0x3454 (entry 0x344); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x37d8",
+          "reason": "Bounded case from relative switch table at 0x3454 (entry 0x384); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x37f0",
+          "reason": "Bounded case from relative switch table at 0x3454 (entry 0x39c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3838",
+          "reason": "Bounded case from relative switch table at 0x3454 (entry 0x3e4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3588",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x3c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3654",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x108); runtime-observed and verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3660",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x114); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3674",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x128); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x367c",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x130); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x368c",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x140); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x369c",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x150); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x36b4",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x168); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x36bc",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x170); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x36cc",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x180); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x36dc",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x190); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x36f4",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x1a8); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3700",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x1b4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3720",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x1d4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3734",
+          "reason": "Bounded case from relative switch table at 0x354c (entry 0x1e8); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x39e8",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x3c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b18",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x16c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b24",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x178); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b38",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x18c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b40",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x194); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b50",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x1a4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b60",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x1b4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b78",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x1cc); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b80",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x1d4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3b90",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x1e4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3ba0",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x1f4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3bb8",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x20c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3bec",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x240); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3c00",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x254); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3bc4",
+          "reason": "Bounded case from relative switch table at 0x39ac (entry 0x218); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3ce8",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x20c); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3cf4",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x218); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d00",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x224); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d14",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x238); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d1c",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x240); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d2c",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x250); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d3c",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x260); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d54",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x278); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d5c",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x280); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d6c",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x290); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d7c",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x2a0); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3d94",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x2b8); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3da0",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x2c4); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3db4",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x2d8); verified executable instruction boundary"
+        },
+        {
+          "ls": "0x3c2c",
+          "reason": "Bounded case from relative switch table at 0x3adc (entry 0x150); verified executable instruction boundary"
+        }
+      ]
+    },
+    {
+      "name": "eboot_fmod_raw",
+      "container": "eboot",
+      "ea": "0x00754100",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0x3f0",
+          "reason": "Observed relocated target 0x26bf0 from eboot_fmodex_spu branch 0x8654; normalizes to valid eboot_fmod_raw instruction boundary 0x3f0"
+        },
+        {
+          "ls": "0x468",
+          "reason": "Observed relocated target 0x26c68 from eboot_fmodex_spu branch 0x888c; normalizes to valid eboot_fmod_raw instruction boundary 0x468"
+        }
+      ]
+    },
+    {
+      "name": "eboot_fmod_chorus",
+      "container": "eboot",
+      "ea": "0x00757480",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_compressor",
+      "container": "eboot",
+      "ea": "0x0075a400",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_distortion",
+      "container": "eboot",
+      "ea": "0x0075b100",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_echo",
+      "container": "eboot",
+      "ea": "0x0075bd00",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_flange",
+      "container": "eboot",
+      "ea": "0x0075d580",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_highpass",
+      "container": "eboot",
+      "ea": "0x0075e200",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_lowpass2",
+      "container": "eboot",
+      "ea": "0x0075fe00",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_lowpass",
+      "container": "eboot",
+      "ea": "0x00761680",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_lowpass_simple",
+      "container": "eboot",
+      "ea": "0x00763d80",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_normalize",
+      "container": "eboot",
+      "ea": "0x00765380",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_oscillator",
+      "container": "eboot",
+      "ea": "0x00765d80",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_parameq",
+      "container": "eboot",
+      "ea": "0x00766980",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_pitchshift",
+      "container": "eboot",
+      "ea": "0x00768180",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_sfxreverb",
+      "container": "eboot",
+      "ea": "0x0076bb80",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_fmod_mpeg_functions",
+      "container": "eboot",
+      "ea": "0x0076fe80",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0x2a8",
+          "reason": "Relocated target written by the overlay entry at LS 0x178"
+        },
+        {
+          "ls": "0x19e0",
+          "reason": "Relocated target written by the overlay entry at LS 0x178"
+        }
+      ]
+    },
+    {
+      "name": "eboot_fmod_mpeg_init",
+      "container": "eboot",
+      "ea": "0x00773f80",
+      "kind": "elf",
+      "role": "raw_thread",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0x1c0",
+          "reason": "Relocated target written by the overlay entry at LS 0x178"
+        },
+        {
+          "ls": "0x418",
+          "reason": "Relocated target written by the overlay entry at LS 0x178"
+        }
+      ]
+    },
+    {
+      "name": "eboot_sd3_spu_main",
+      "container": "eboot",
+      "ea": "0x00776400",
+      "kind": "elf",
+      "role": "spurs_task",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_sd3_rock_collider",
+      "container": "eboot",
+      "ea": "0x00781180",
+      "kind": "elf",
+      "role": "spurs_task",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_ps3_spu_particle",
+      "container": "eboot",
+      "ea": "0x00786e80",
+      "kind": "elf",
+      "role": "spurs_task",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0x79bc",
+          "reason": "Observed indirect target from eboot_ps3_spu_particle branch 0x7998 during uncapped run; verified instruction boundary inside recovered code range"
+        }
+      ]
+    },
+    {
+      "name": "eboot_ps3_spu_vertex",
+      "container": "eboot",
+      "ea": "0x0078c600",
+      "kind": "elf",
+      "role": "spurs_task",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "eboot_ps3_spu_mesh",
+      "container": "eboot",
+      "ea": "0x0078e380",
+      "kind": "elf",
+      "role": "spurs_task",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "libsre_kernel1",
+      "container": "libsre",
+      "ea": "0x2020380",
+      "kind": "elf",
+      "role": "spurs_kernel",
+      "lowering": "stackfree",
+      "gate": true,
+      "data_ranges": [
+        {
+          "start": "0x100",
+          "end": "0x290",
+          "reason": "kernel context, not code"
+        }
+      ],
+      "extra_entries": [
+        {
+          "ls": "0x290",
+          "reason": "select-workload address stored at LS 0x1e4; the system service calls it through bisl"
+        },
+        {
+          "ls": "0x808",
+          "reason": "exit-to-kernel address stored at LS 0x1e0; policy modules branch to it"
+        }
+      ]
+    },
+    {
+      "name": "libsre_kernel2",
+      "container": "libsre",
+      "ea": "0x2020c00",
+      "kind": "elf",
+      "role": "spurs_kernel",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "libsre_system_service",
+      "container": "libsre",
+      "ea": "0x2021480",
+      "kind": "raw",
+      "size": "0x2200",
+      "ls_base": "0xa00",
+      "entry": "0xa00",
+      "role": "spurs_system_service",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "libsre_taskset_pm",
+      "container": "libsre",
+      "ea": "0x2023680",
+      "kind": "raw",
+      "size": "0x1e40",
+      "ls_base": "0xa00",
+      "entry": "0xa00",
+      "role": "spurs_policy_module",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": [
+        {
+          "ls": "0xa70",
+          "reason": "syscall entry stored at LS 0x27c4; tasks call it through bisl"
+        }
+      ]
+    },
+    {
+      "name": "libsre_taskset2_exit",
+      "container": "libsre",
+      "ea": "0x2025500",
+      "kind": "raw",
+      "size": "0x670",
+      "ls_base": "0x10000",
+      "entry": "0x10000",
+      "role": "exit_handler",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "libsre_exit_code_plugin",
+      "container": "libsre",
+      "ea": "0x2025b80",
+      "kind": "raw",
+      "size": "0x710",
+      "ls_base": "0x10000",
+      "entry": "0x10000",
+      "role": "exit_handler",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "libsre_jobchain_pm1",
+      "container": "libsre",
+      "ea": "0x2026300",
+      "kind": "raw",
+      "size": "0x3e30",
+      "ls_base": "0xa00",
+      "entry": "0xa00",
+      "role": "job_chain_pm",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    },
+    {
+      "name": "libsre_jobchain_pm2",
+      "container": "libsre",
+      "ea": "0x202a180",
+      "kind": "raw",
+      "size": "0x3e30",
+      "ls_base": "0xa00",
+      "entry": "0xa00",
+      "role": "job_chain_pm",
+      "lowering": "stackfree",
+      "gate": true,
+      "extra_entries": []
+    }
+  ]
+}

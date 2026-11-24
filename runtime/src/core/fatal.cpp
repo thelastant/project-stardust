@@ -1,0 +1,261 @@
+#include "core/fatal.h"
+
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <format>
+#include <string>
+#include <system_error>
+
+#include "core/event_history.h"
+#include "core/guest_memory.h"
+#include "core/host_memory.h"
+#include "core/log.h"
+
+#if defined(SSHD_PGO_INSTRUMENTED)
+extern "C" int __llvm_profile_write_file(void);
+#endif
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
+#include <crtdbg.h>
+#else
+#include <limits.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+#endif
+
+namespace sshd {
+namespace {
+
+std::atomic<CensusPrinterFn> g_census_printer{nullptr};
+std::array<std::atomic<StopHookFn>, kMaxStopHooks> g_stop_hooks;
+std::atomic<std::size_t> g_stop_hook_count{0};
+std::atomic<bool> g_stopping{false};
+thread_local const SshdPpuContext* t_fatal_context = nullptr;
+thread_local FatalDumpFn t_fatal_dump = nullptr;
+thread_local const void* t_fatal_subject = nullptr;
+thread_local bool t_in_stop = false;
+
+// Takes the single right to end the process. A second host thread parks until the first one
+// calls _Exit. A thread that faults again while stopping must not wait for itself.
+void enterStop() {
+    if (t_in_stop) {
+        std::_Exit(static_cast<int>(ExitCode::Fatal));
+    }
+    t_in_stop = true;
+    if (g_stopping.exchange(true)) {
+        for (;;) {
+#if defined(_WIN32)
+            Sleep(INFINITE);
+#else
+            pause();
+#endif
+        }
+    }
+}
+
+[[noreturn]] void finishStop(ExitCode code) {
+    // A slot is published before the count, so every counted slot is set.
+    const std::size_t hooks = g_stop_hook_count.load();
+    for (std::size_t i = 0; i < hooks; i++) {
+        g_stop_hooks[i].load()();
+    }
+    if (CensusPrinterFn printer = g_census_printer.load()) {
+        printer();
+    }
+#if defined(SSHD_PGO_INSTRUMENTED)
+    // The runtime deliberately ends with _Exit, which bypasses LLVM's atexit profile writer.
+    // Flush explicitly on the single orderly stop path so interactive training runs work.
+    if (__llvm_profile_write_file() != 0) {
+        logWarn("sshd: PGO profile could not be written");
+    }
+#endif
+    std::fflush(stdout);
+    flushLog();
+    std::fflush(stderr);
+    std::_Exit(static_cast<int>(code));
+}
+
+// True when [addr, addr + 8) is 8-byte aligned, inside the stack region and committed readable
+// host memory.
+bool readableStackWord(const std::uint8_t* base, std::uint64_t addr) {
+    if ((addr & 7) != 0 || addr < kStackRegion.begin || addr + 8 > kStackRegion.end) {
+        return false;
+    }
+    return host::readable(base + addr, 8);
+}
+
+void dumpContext(const SshdPpuContext& ctx) {
+    logInfo("registers:");
+    for (int row = 0; row < 32; row += 4) {
+        logInfo("  r{:<2} {:016x}  r{:<2} {:016x}  r{:<2} {:016x}  r{:<2} {:016x}", row, ctx.gpr[row], row + 1,
+                ctx.gpr[row + 1], row + 2, ctx.gpr[row + 2], row + 3, ctx.gpr[row + 3]);
+    }
+    logInfo("  lr {:016x}  ctr {:016x}  cr {:08x}  xer {:08x}", ctx.lr, ctx.ctr, sshdMfcr(&ctx),
+            static_cast<std::uint32_t>(sshdMfxer(&ctx)));
+
+    const std::uint32_t count = ctx.trace_pos < kSshdTraceSize ? ctx.trace_pos : kSshdTraceSize;
+    logInfo("trace (oldest -> newest, {} entries):", count);
+    std::string line;
+    for (std::uint32_t i = 0; i < count; i++) {
+        // Entry i of the logical sequence ending at trace_pos - 1.
+        const std::uint32_t slot = (ctx.trace_pos - count + i) & (kSshdTraceSize - 1);
+        line += std::format(" {:08x}", ctx.trace[slot]);
+        if ((i & 7) == 7 || i + 1 == count) {
+            logInfo("{}", line);
+            line.clear();
+        }
+    }
+
+    // The trace ring only holds function entries; the stack gives the call sites. The live LR is
+    // frame 0 (it is the return address when the stop happens in a leaf or an HLE call).
+    logInfo("guest stack:");
+    logInfo("  frame 0: lr {:#010x} in fn {:#010x}", static_cast<std::uint32_t>(ctx.lr),
+            findOwningFunction(static_cast<std::uint32_t>(ctx.lr)));
+    GuestFrame frames[kMaxGuestFrames];
+    const std::size_t n = walkGuestStack(ctx, process().memory.base(), frames, kMaxGuestFrames);
+    for (std::size_t i = 0; i < n; i++) {
+        logInfo("  frame {}: lr {:#010x} in fn {:#010x}", i + 1, frames[i].lr, frames[i].function);
+    }
+}
+
+}  // namespace
+
+std::size_t walkGuestStack(const SshdPpuContext& ctx, const std::uint8_t* base, GuestFrame* out,
+                           std::size_t max_frames) {
+    if (base == nullptr) {
+        return 0;
+    }
+    std::uint64_t sp = ctx.gpr[1];
+    std::size_t count = 0;
+    while (count < max_frames && readableStackWord(base, sp)) {
+        const std::uint64_t back_chain = sshdRead64(base, static_cast<std::uint32_t>(sp));
+        // The stack grows down, so a valid chain strictly ascends; this also rules out cycles.
+        if (back_chain <= sp || !readableStackWord(base, back_chain) || !readableStackWord(base, back_chain + 16)) {
+            break;
+        }
+        const std::uint64_t lr = sshdRead64(base, static_cast<std::uint32_t>(back_chain + 16));
+        if (lr == 0 || lr > 0xFFFFFFFFull) {
+            break;
+        }
+        out[count++] = {static_cast<std::uint32_t>(lr), findOwningFunction(static_cast<std::uint32_t>(lr))};
+        sp = back_chain;
+    }
+    return count;
+}
+
+std::string_view fatalKindName(FatalKind kind) {
+    switch (kind) {
+        case FatalKind::UnhandledInstruction: return "unhandled instruction";
+        case FatalKind::Trap: return "trap";
+        case FatalKind::GuestFault: return "guest fault";
+        case FatalKind::UnknownTarget: return "unknown target";
+        case FatalKind::Internal: break;
+    }
+    return "internal error";
+}
+
+void setCensusPrinter(CensusPrinterFn fn) { g_census_printer.store(fn); }
+
+bool addStopHook(StopHookFn fn) {
+    const std::size_t slot = g_stop_hook_count.load();
+    if (slot >= kMaxStopHooks) {
+        return false;
+    }
+    g_stop_hooks[slot].store(fn);
+    g_stop_hook_count.store(slot + 1);
+    return true;
+}
+
+void setFatalContext(const SshdPpuContext* ctx) { t_fatal_context = ctx; }
+
+void setFatalDump(FatalDumpFn fn, const void* subject) {
+    t_fatal_dump = fn;
+    t_fatal_subject = subject;
+}
+
+void fatal(FatalKind kind, std::string_view message, std::optional<std::uint32_t> fault_addr) {
+    enterStop();
+    logInfo("sshd: stop: fatal {}: {}", fatalKindName(kind), message);
+    if (t_fatal_dump != nullptr) {
+        std::string text = t_fatal_dump(t_fatal_subject);
+        // The logger adds its own newline.
+        while (!text.empty() && text.back() == '\n') text.pop_back();
+        logInfo("{}", text);
+    } else if (t_fatal_context != nullptr) {
+        dumpContext(*t_fatal_context);
+    }
+    if (kind == FatalKind::GuestFault) {
+        logInfo("event history (oldest -> newest):");
+        for (const std::string& line : historyLines(fault_addr)) {
+            logInfo("{}", line);
+        }
+    }
+    finishStop(ExitCode::Fatal);
+}
+
+void stopProcess(ExitCode code, std::string_view line) {
+    enterStop();
+    logInfo("{}", line);
+    finishStop(code);
+}
+
+void installProcessSettings() {
+#if defined(_WIN32)
+    // abort() would otherwise show the debug CRT dialog or hand the process to Windows Error
+    // Reporting; with both off it just terminates.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    _set_error_mode(_OUT_TO_STDERR);
+    // The error-mode flags also cover faults in the loader and unhandled exceptions, which would
+    // otherwise raise the "has stopped working" box.
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#ifdef _DEBUG
+    for (const int type : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT}) {
+        _CrtSetReportMode(type, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(type, _CRTDBG_FILE_STDERR);
+    }
+#endif
+#endif
+}
+
+std::filesystem::path executableDirectory() {
+#if defined(_WIN32)
+    std::wstring buffer(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0) return {};
+        if (length < buffer.size()) {
+            buffer.resize(length);
+            return std::filesystem::path(buffer).parent_path();
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+#elif defined(__APPLE__)
+    std::string buffer(PATH_MAX, '\0');
+    auto size = static_cast<std::uint32_t>(buffer.size());
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        // `size` now holds the length the path needs.
+        buffer.resize(size);
+        if (_NSGetExecutablePath(buffer.data(), &size) != 0) return {};
+    }
+    buffer.resize(std::strlen(buffer.c_str()));
+    // The reported path can contain symlinks and "..", which would leak into the paths derived from it.
+    std::error_code ec;
+    const std::filesystem::path resolved = std::filesystem::weakly_canonical(buffer, ec);
+    return (ec ? std::filesystem::path(buffer) : resolved).parent_path();
+#else
+#error "executableDirectory: unsupported platform"
+#endif
+}
+
+}  // namespace sshd

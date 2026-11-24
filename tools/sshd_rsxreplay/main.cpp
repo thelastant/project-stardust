@@ -1,0 +1,1234 @@
+// sshd_rsxreplay: feeds a .sshdcap capture (see rsx/rsx_capture.h) through the RSX frame builder without
+// the game, prints the commands it produces, renders them headless on Vulkan, writes the displayed
+// frame as a PNG and prints the summary line, the unimplemented census section and the validation result.
+
+#include <algorithm>
+#include <charconv>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <format>
+#include <map>
+#include <memory>
+#include <optional>
+#include <set>
+#include <span>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "core/census.h"
+#include "core/thread_cpu.h"
+#include "render/frame_dump.h"
+#include "render/object_motion.h"
+#include "render/render_scale.h"
+#include "render/vk_context.h"
+#include "render/vk_renderer.h"
+#include "rsx/rsx_capture.h"
+#include "rsx/rsx_census.h"
+#include "rsx/rsx_decode.h"
+#include "rsx/rsx_frame.h"
+#include "rsx/rsx_frame_builder.h"
+#include "rsx/rsx_unimplemented.h"
+
+namespace {
+
+void printUsage() {
+    std::fputs(
+            "usage: sshd_rsxreplay CAPTURE [CAPTURE...] [--loop N] [--out DIR]\n"
+            "                      [--compare PNG [--compare-rect X,Y,W,H] [--max-diff N] [--max-mean X]\n"
+            "                       [--max-differing P]]\n"
+            "                      [--resolution-scale N] [--aa-mode supersample|msaa|dlaa] [--no-validation]\n"
+            "                      [--vk-driver auto|moltenvk|kosmickrisp]\n"
+            "                      [--dlaa-jitter on|off] [--dlaa-jitter-flip none|x|y|xy]\n"
+            "                      [--dlaa-camera on|off|reset] [--dlaa-clip-flip-y on|off]\n"
+            "                      [--dlaa-mv-invalid zero|unset] [--dlaa-motion matrices|camera|object]\n"
+            "                      [--fg-mv-check [--fg-mv-flip none|x|y|xy]] [--motion-report [draws]]\n"
+            "                      [--shader-cache DIR] [--repeat N [--gpu-timing]] [--quiet]\n"
+            "  CAPTURE  a .sshdcap file written by sshd_game --rsx-capture; several captures are replayed in\n"
+            "           order through one renderer, each one a frame that must end with a flip\n"
+            "  --loop N            play the list of captures N times in order (1..1000, default 1)\n"
+            "  --out DIR           write the displayed frame as DIR/<capture name>.png after every frame\n"
+            "  --compare PNG       diff the displayed frame of the last frame against PNG (box-downsampled first when\n"
+            "                      it is a whole multiple of the PNG's size)\n"
+            "  --compare-rect X,Y,W,H  with --compare: diff only this rectangle, in the PNG's pixels\n"
+            "  --max-diff N        with --compare: fail when the largest channel difference exceeds N\n"
+            "  --max-mean X        with --compare: fail when the mean difference exceeds X\n"
+            "  --max-differing P   with --compare: fail when more than P percent of the pixels differ\n"
+            "  --resolution-scale N  render every target at N times its guest size (1..4, default 1); the PNG is\n"
+            "                      written at that size\n"
+            "  --aa-mode M         how anti-aliased surfaces are drawn: msaa (2-sample multisampling, default),\n"
+            "                      supersample (one sample per memory-layout pixel) or dlaa (NVIDIA DLAA through\n"
+            "                      Streamline); dlaa falls back to msaa when it is unavailable, and msaa falls back\n"
+            "                      to supersample on a device without 2-sample support\n"
+            "  --vk-driver D       Vulkan driver: auto (default; MoltenVK before KosmicKrisp), moltenvk or kosmickrisp;\n"
+            "                      a driver that is not installed leaves the replay without a device\n"
+            "  --dlaa-jitter M     diagnostic, needs --aa-mode dlaa: on (default) or off (no sub-pixel jitter)\n"
+            "  --dlaa-jitter-flip F  diagnostic, needs --aa-mode dlaa: negate the jitter offset reported to DLAA on\n"
+            "                      the x axis, the y axis or both (none by default); the geometry does not change\n"
+            "  --dlaa-camera M     diagnostic, needs --aa-mode dlaa: describe the camera motion between frames from the\n"
+            "                      scene draws' projections (on, default), with identity matrices (off), or drop the\n"
+            "                      history at every frame (reset)\n"
+            "  --dlaa-clip-flip-y M  diagnostic, needs --aa-mode dlaa: on (default) or off, whether the camera's\n"
+            "                      clip-to-clip matrices are mirrored in y for Streamline's y-up clip space\n"
+            "  --dlaa-mv-invalid V  diagnostic, needs --aa-mode dlaa: motionVectorsInvalidValue 0 (zero, default) or the\n"
+            "                      SDK default (unset, which makes Streamline warn once per process)\n"
+            "  --dlaa-motion M     diagnostic, needs --aa-mode dlaa: how motion reaches DLAA: object (default, previous\n"
+            "                      inputs are bound and the scene pass writes per-object motion), matrices (camera\n"
+            "                      matrices only) or camera (candidate draws also record their previous inputs, but the\n"
+            "                      object motion they write is not used); camera and object print an object motion line,\n"
+            "                      object also an object image line\n"
+            "  --fg-mv-check       diagnostic, needs --aa-mode dlaa: draw the camera motion vectors that frame generation\n"
+            "                      will use and, from the second frame on, print how well they warp the previous DLAA\n"
+            "                      output onto the current one (the displayed frame does not change)\n"
+            "  --fg-mv-flip F      diagnostic, needs --fg-mv-check: negate the motion vectors on the x axis, the y axis or\n"
+            "                      both (none by default)\n"
+            "  --motion-report [draws]  diagnostic, CPU only: for every frame of the first pass print how many of its\n"
+            "                      perspective scene draws are object motion candidates and how many of them each\n"
+            "                      matching rule pairs with the previous capture's; with draws, also one line per\n"
+            "                      perspective scene draw. The rendering does not change; not with --repeat\n"
+            "  --no-validation     do not enable the Vulkan validation layer\n"
+            "  --shader-cache DIR  directory of the on-disk SPIR-V cache\n"
+            "  --repeat N          replay and render the capture N times (N >= 1) with one memory view, builder and\n"
+            "                      renderer, and print the median time per phase (the first iteration is warm-up and\n"
+            "                      left out when N >= 2); one capture only; not with --out, --compare or --loop\n"
+            "  --gpu-timing        needs --repeat: time every rendering instance on the GPU and print the median\n"
+            "                      frame, instance and outside times and the most expensive instances\n"
+            "  --quiet             do not print the per-command lines\n",
+            stderr);
+}
+
+// "X,Y,W,H": four unsigned decimal numbers, W and H above 0. Whether the rectangle fits the image is cropRgb's check.
+bool parseRect(std::string_view text, std::uint32_t (&rect)[4]) {
+    for (int i = 0; i < 4; i++) {
+        const std::size_t end = text.find(',');
+        if ((i < 3) != (end != std::string_view::npos)) return false;
+        const std::string_view field = text.substr(0, end);
+        std::uint32_t value = 0;
+        const auto [ptr, ec] = std::from_chars(field.data(), field.data() + field.size(), value);
+        if (field.empty() || ec != std::errc() || ptr != field.data() + field.size()) return false;
+        rect[i] = value;
+        text = end == std::string_view::npos ? std::string_view() : text.substr(end + 1);
+    }
+    return rect[2] > 0 && rect[3] > 0;
+}
+
+const char* primitiveName(sshd::RsxPrimitive primitive) {
+    switch (primitive) {
+        case sshd::RsxPrimitive::Points: return "POINTS";
+        case sshd::RsxPrimitive::Lines: return "LINES";
+        case sshd::RsxPrimitive::LineLoop: return "LINE_LOOP";
+        case sshd::RsxPrimitive::LineStrip: return "LINE_STRIP";
+        case sshd::RsxPrimitive::Triangles: return "TRIANGLES";
+        case sshd::RsxPrimitive::TriangleStrip: return "TRIANGLE_STRIP";
+        case sshd::RsxPrimitive::TriangleFan: return "TRIANGLE_FAN";
+        case sshd::RsxPrimitive::Quads: return "QUADS";
+        case sshd::RsxPrimitive::QuadStrip: return "QUAD_STRIP";
+        case sshd::RsxPrimitive::Polygon: return "POLYGON";
+    }
+    return "?";
+}
+
+// The unimplemented census provider is registered here because only the game installs the RSX
+// consumer's own.
+sshd::RsxUnimplementedCensus unimplementedCensus() {
+    return {sshd::rsxUnimplementedSnapshot(), sshd::rsxUnimplementedDropped()};
+}
+
+// The same text the game prints at stop, cut out of the whole census.
+std::string unimplementedSection() {
+    const std::string census = sshd::formatCensus();
+    constexpr std::string_view kHeader = "census: rsx unimplemented";
+    const std::size_t begin = census.find(kHeader);
+    if (begin == std::string::npos) return {};
+    const std::size_t end = census.find("\ncensus:", begin);
+    return census.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+}
+
+void printClear(const sshd::RsxClear& clear) {
+    const sshd::RsxSurface& color = clear.surfaces.color;
+    std::printf("clear mask=%#x color=0x%08x %ux%u@0x%x", clear.mask, clear.color_argb, color.width, color.height,
+                color.offset);
+    if (clear.surfaces.aa_mode != 0) std::printf(" aa=%u", clear.surfaces.aa_mode);
+    std::printf("\n");
+}
+
+const char* surfaceFormatName(sshd::RsxColorFormat format) {
+    switch (format) {
+        case sshd::RsxColorFormat::A8R8G8B8: return "A8R8G8B8";
+        case sshd::RsxColorFormat::F_X32: return "F_X32";
+        default: return "?";
+    }
+}
+
+void printDraw(const sshd::RsxDraw& draw, std::span<const sshd::RsxSurface> surfaces) {
+    std::printf("draw %s count=%u vp=%016llx fp=%016llx tc=%#x ps=%g om=%#x", primitiveName(draw.primitive),
+                draw.count, static_cast<unsigned long long>(draw.vp_hash),
+                static_cast<unsigned long long>(draw.fp_hash), draw.texcoord_control,
+                static_cast<double>(draw.raster.point_size), draw.vp_output_mask);
+    const sshd::RsxSurfaceState& target = draw.surfaces;
+    if (target.has_color) {
+        std::printf(" color=%ux%u@%#x:%s pitch=%#x", target.color.width, target.color.height, target.color.offset,
+                    surfaceFormatName(target.color.format), target.color.pitch);
+        if (target.aa_mode != 0) std::printf(" aa=%u msaa=%d", target.aa_mode, draw.raster.msaa ? 1 : 0);
+    }
+    if (target.depth_format != sshd::RsxDepthFormat::None) {
+        const char* depth_name = target.depth_format == sshd::RsxDepthFormat::Z24S8 ? "Z24S8"
+                                 : target.depth_format == sshd::RsxDepthFormat::Z16 ? "Z16"
+                                                                                    : "?";
+        std::printf(" depth=%s@%#x dpitch=%#x", depth_name, target.depth.offset, target.depth.pitch);
+        std::printf(" zt=%d zw=%d st=%d", draw.raster.depth_test ? 1 : 0, draw.raster.depth_write ? 1 : 0,
+                    draw.raster.stencil_test ? 1 : 0);
+    }
+    for (const sshd::RsxTextureDesc& texture : draw.textures) {
+        if (texture.rt_alias >= 0 && static_cast<std::size_t>(texture.rt_alias) < surfaces.size()) {
+            const sshd::RsxSurface& surface = surfaces[static_cast<std::size_t>(texture.rt_alias)];
+            // The surface size comes from the capture's known-surface table and can be stale, so the address the
+            // texture reads, its pitch and its sampling state are printed as well.
+            std::printf(" tex%u=alias:%d(%ux%u as %ux%u %s @%u:%#x pitch=%#x norm=%d filter=%u/%u)", texture.unit,
+                        texture.rt_alias, surface.width, surface.height, texture.width, texture.height,
+                        sshd::rsxTextureFormatName(texture.format).c_str(), texture.location, texture.offset,
+                        texture.pitch, texture.normalized ? 1 : 0, sshd::rsxTextureMinFilter(texture.filter),
+                        sshd::rsxTextureMagFilter(texture.filter));
+        } else {
+            const sshd::RsxTextureKind kind = sshd::rsxTextureKind(texture);
+            const std::string shape = kind == sshd::RsxTextureKind::Tex3D  ? std::format("x{} 3D", texture.depth)
+                                      : kind == sshd::RsxTextureKind::Cube ? " cube"
+                                      : kind == sshd::RsxTextureKind::Unsupported
+                                              ? std::format(" dim{}", texture.dimension)
+                                              : std::string();
+            std::printf(" tex%u=bytes(%ux%u%s %s mips=%u)", texture.unit, texture.width, texture.height, shape.c_str(),
+                        sshd::rsxTextureFormatName(texture.format).c_str(), texture.mips);
+        }
+    }
+    std::printf("\n");
+}
+
+using Clock = std::chrono::steady_clock;
+
+std::uint64_t nanosSince(Clock::time_point begin) {
+    return static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - begin).count());
+}
+
+// What one --repeat iteration measured: times in nanoseconds, counters as deltas over the iteration.
+struct IterationSample {
+    std::uint64_t build_ns = 0, build_draw_ns = 0, record_draw_ns = 0, record_clear_ns = 0, submit_ns = 0,
+                  gpu_wait_ns = 0;
+    std::uint64_t draws = 0, fp_hits = 0, fp_misses = 0, vp_hits = 0, vp_misses = 0;
+    std::uint64_t bytes_copied = 0, bytes_union = 0;
+    std::uint64_t tex_validations = 0, tex_hashed = 0, tex_read = 0;
+    std::uint64_t barriers = 0, barriers_skipped = 0, instances = 0, state_calls = 0, state_skipped = 0;
+    std::uint64_t uploads_reused = 0;
+    std::uint64_t tex_unit_hits = 0, tex_unit_misses = 0, tex_bind_hits = 0, tex_bind_misses = 0;
+    std::uint64_t tex_hash_skips = 0, tex_safety_hashes = 0, tex_unreported = 0;
+    // Thread cycles of the replay thread: build, the whole execute loop, and the iteration.
+    std::uint64_t build_cycles = 0, record_cycles = 0, total_cycles = 0;
+};
+
+std::uint64_t median(const std::vector<IterationSample>& samples, std::uint64_t IterationSample::* field) {
+    std::vector<std::uint64_t> values;
+    values.reserve(samples.size());
+    for (const IterationSample& sample : samples) values.push_back(sample.*field);
+    std::sort(values.begin(), values.end());
+    return values[values.size() / 2];
+}
+
+std::uint64_t medianCycles(const std::vector<IterationSample>& samples, std::uint64_t IterationSample::* field) {
+    std::vector<std::uint64_t> values;
+    values.reserve(samples.size());
+    for (const IterationSample& sample : samples) values.push_back(sample.*field);
+    return sshd::summarizeCycles(values).median;
+}
+
+double toMs(std::uint64_t ns) { return static_cast<double>(ns) / 1e6; }
+
+unsigned long long toUll(std::uint64_t value) { return static_cast<unsigned long long>(value); }
+
+const char* colorFormatName(VkFormat format) {
+    switch (format) {
+        case VK_FORMAT_UNDEFINED: return "none";
+        case VK_FORMAT_B8G8R8A8_UNORM: return "bgra8";
+        case VK_FORMAT_R8G8B8A8_UNORM: return "rgba8";
+        case VK_FORMAT_R32_SFLOAT: return "r32f";
+        case VK_FORMAT_R16G16_SFLOAT: return "rg16f";
+        case VK_FORMAT_R32G32B32A32_SFLOAT: return "rgba32f";
+        default: return "other";
+    }
+}
+
+double medianOf(std::vector<double> values) {
+    std::sort(values.begin(), values.end());
+    return values[values.size() / 2];
+}
+
+// The "gpu:" and "gpu top:" lines of --gpu-timing. `frames` holds one entry per iteration; like "timing:" the median
+// leaves the first one out when there are two or more.
+void printGpuTiming(sshd::RsxRenderer& renderer, const std::string& capture_name, std::uint32_t repeat) {
+    if (!renderer.gpuTimingActive()) {
+        std::printf("gpu: unavailable: %s\n", renderer.gpuTimingGap().c_str());
+        return;
+    }
+    renderer.drainGpuTiming();
+    std::vector<sshd::GpuTimingFrame> frames = renderer.takeGpuTiming();
+    if (frames.size() != repeat) {
+        std::fprintf(stderr, "error: --gpu-timing expected %u frames, the renderer submitted %zu\n", repeat,
+                     frames.size());
+        return;
+    }
+    if (repeat > 1) frames.erase(frames.begin());
+    constexpr std::size_t kKindCount = 5;
+    std::vector<double> frame_ms, instances_ms, outside_ms, kind_ms[kKindCount];
+    std::vector<double> motion_copy_ms, motion_pass_ms;
+    std::uint32_t untimed = 0;
+    for (const sshd::GpuTimingFrame& frame : frames) {
+        double kind_sum[kKindCount] = {};
+        double sum = 0;
+        for (const sshd::GpuTimingInstance& instance : frame.instances) {
+            kind_sum[static_cast<std::size_t>(instance.label.kind)] += instance.ms;
+            sum += instance.ms;
+        }
+        frame_ms.push_back(frame.frame_ms);
+        instances_ms.push_back(sum);
+        outside_ms.push_back(frame.outside_ms);
+        for (std::size_t kind = 0; kind < kKindCount; kind++) kind_ms[kind].push_back(kind_sum[kind]);
+        untimed += frame.untimed_instances;
+        // Only frames that recorded the span: a frame without one would pull the median toward 0.
+        if (frame.motion_copy_spans != 0) motion_copy_ms.push_back(frame.motion_copy_ms);
+        if (frame.motion_pass_spans != 0) motion_pass_ms.push_back(frame.motion_pass_ms);
+    }
+    std::string motion_text;
+    if (!motion_copy_ms.empty()) motion_text += std::format(", motion copy {:.3f}", medianOf(motion_copy_ms));
+    if (!motion_pass_ms.empty()) motion_text += std::format(", motion pass {:.3f}", medianOf(motion_pass_ms));
+    std::printf(
+            "gpu: %s, %u iteration%s (%s), median ms per iteration: frame %.2f, instances %.2f (draw %.2f, clear %.2f, "
+            "masked-clear %.2f, layout %.2f, depth-argb %.2f), outside %.2f%s\n",
+            capture_name.c_str(), repeat, repeat == 1 ? "" : "s", repeat == 1 ? "none excluded" : "first excluded",
+            medianOf(frame_ms), medianOf(instances_ms), medianOf(kind_ms[0]), medianOf(kind_ms[1]),
+            medianOf(kind_ms[2]), medianOf(kind_ms[3]), medianOf(kind_ms[4]), medianOf(outside_ms),
+            motion_text.c_str());
+    if (untimed != 0) {
+        std::fprintf(stderr, "warning: %u rendering instances found the timestamp pool full and are not timed\n",
+                     untimed);
+    }
+
+    const sshd::GpuTimingFrame& last = frames.back();
+    std::vector<std::size_t> order(last.instances.size());
+    for (std::size_t i = 0; i < order.size(); i++) order[i] = i;
+    std::sort(order.begin(), order.end(),
+              [&](std::size_t a, std::size_t b) { return last.instances[a].ms > last.instances[b].ms; });
+    constexpr std::size_t kTopCount = 15;
+    for (std::size_t rank = 0; rank < std::min(order.size(), kTopCount); rank++) {
+        const sshd::GpuTimingInstance& instance = last.instances[order[rank]];
+        const sshd::GpuInstanceLabel& label = instance.label;
+        std::printf("gpu top: #%zu %s %ux%u s%u %s%s", order[rank], sshd::gpuInstanceKindName(label.kind), label.width,
+                    label.height, label.samples, colorFormatName(label.color_format), label.depth ? " depth" : "");
+        if (label.kind == sshd::GpuInstanceKind::Draw) {
+            std::printf(" draws %u%s", label.draws, label.began_with_clear ? " after clear" : "");
+        }
+        std::printf(": %.2f ms\n", instance.ms);
+    }
+}
+
+std::string memoryFlagNames(VkMemoryPropertyFlags flags) {
+    std::string text = std::format("{:#x}", static_cast<std::uint32_t>(flags));
+    if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) text += " device-local";
+    if (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) text += " host-visible";
+    if (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) text += " host-coherent";
+    if (flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) text += " host-cached";
+    return text;
+}
+
+// The DLAA counters of a replay, for the line after the summary; empty unless the renderer runs DLAA.
+std::string dlaaStatsText(const sshd::RsxRenderer& renderer) {
+    if (renderer.aaMode() != sshd::AaMode::Dlaa) return {};
+    const sshd::RendererStats& stats = renderer.stats();
+    std::string text = std::format("dlaa: {} evaluations, {} resets, {} failures", stats.dlaa_evaluations,
+                                   stats.dlaa_resets, stats.dlaa_failures);
+    if (renderer.objectMotionActive()) {
+        text += std::format("\nobject motion: {} candidates, {} matched, {} history bytes, {} regions",
+                            stats.object_motion_candidates, stats.object_motion_matched,
+                            stats.object_motion_history_bytes, stats.object_motion_history_regions);
+    }
+    return text;
+}
+
+// What the closing lines need from a --repeat run (the last iteration's figures).
+struct TimedResult {
+    std::size_t commands = 0, draws = 0, skipped = 0;
+    sshd::AaMode aa_mode = sshd::AaMode::Msaa;
+    std::string dlaa_text;  // the "dlaa:" line, empty unless the effective mode is dlaa
+};
+
+// Replays and renders the capture `repeat` times with one memory view, builder and renderer, so the texture cache,
+// program caches and pipelines are warm as in the game's steady state. Each command is executed on its own, so the
+// recording time is split by command type; time spent waiting for a frame slot is reported apart from it. The
+// unimplemented census is reset per iteration so the printed section is that of one replay.
+bool runTimedReplay(const sshd::RsxCaptureReader& reader, const std::string& capture_name, std::uint32_t repeat,
+                    sshd::VkContext& context, const sshd::RenderOptions& render_options, TimedResult& result) {
+    sshd::ReplayRsxMemoryView memory;
+    sshd::RsxFrameBuilder builder(memory);
+    builder.setTimingEnabled(true);
+    sshd::RsxRenderer renderer(context, render_options);
+    result.aa_mode = renderer.aaMode();
+
+    std::vector<IterationSample> samples;
+    for (std::uint32_t iteration = 0; iteration < repeat; iteration++) {
+        sshd::rsxUnimplementedReset();
+        const sshd::RsxBuilderStats builder_before = builder.stats();
+        IterationSample sample;
+
+        const std::uint64_t cycles_begin = sshd::currentThreadCycles();
+        Clock::time_point begin = Clock::now();
+        sshd::replayCapture(reader, memory, builder);
+        std::vector<sshd::RsxCommand> commands = builder.takeCommands();
+        sample.build_ns = nanosSince(begin);
+        const std::uint64_t cycles_built = sshd::currentThreadCycles();
+        sample.build_cycles = cycles_built - cycles_begin;
+        const sshd::RsxBuilderStats& builder_after = builder.stats();
+        sample.build_draw_ns = builder_after.build_draw_ns - builder_before.build_draw_ns;
+        sample.fp_hits = builder_after.fp_cache_hits - builder_before.fp_cache_hits;
+        sample.fp_misses = builder_after.fp_cache_misses - builder_before.fp_cache_misses;
+        sample.vp_hits = builder_after.vp_cache_hits - builder_before.vp_cache_hits;
+        sample.vp_misses = builder_after.vp_cache_misses - builder_before.vp_cache_misses;
+        sample.bytes_copied = builder_after.vertex_bytes_copied - builder_before.vertex_bytes_copied;
+        sample.bytes_union = builder_after.vertex_bytes_union - builder_before.vertex_bytes_union;
+        sample.tex_validations = builder_after.texture_validations - builder_before.texture_validations;
+        sample.tex_hashed = builder_after.texture_bytes_hashed - builder_before.texture_bytes_hashed;
+        sample.tex_read = builder_after.texture_bytes_read - builder_before.texture_bytes_read;
+        sample.tex_unit_hits = builder_after.texture_unit_hits - builder_before.texture_unit_hits;
+        sample.tex_unit_misses = builder_after.texture_unit_misses - builder_before.texture_unit_misses;
+        sample.tex_hash_skips = builder_after.texture_hash_skips - builder_before.texture_hash_skips;
+        sample.tex_safety_hashes = builder_after.texture_safety_hashes - builder_before.texture_safety_hashes;
+        sample.tex_unreported = builder_after.texture_unreported_changes - builder_before.texture_unreported_changes;
+
+        const sshd::RendererStats renderer_before = renderer.stats();
+        for (sshd::RsxCommand& command : commands) {
+            const std::uint64_t wait_before = renderer.stats().slot_wait_ns;
+            begin = Clock::now();
+            renderer.execute(std::span<sshd::RsxCommand>(&command, 1));
+            const std::uint64_t elapsed = nanosSince(begin);
+            const std::uint64_t wait = std::min(renderer.stats().slot_wait_ns - wait_before, elapsed);
+            sample.gpu_wait_ns += wait;
+            const bool is_draw = std::holds_alternative<sshd::RsxDraw>(command);
+            std::uint64_t& phase = is_draw                                           ? sample.record_draw_ns
+                                   : std::holds_alternative<sshd::RsxClear>(command) ? sample.record_clear_ns
+                                                                                     : sample.submit_ns;
+            phase += elapsed - wait;
+            if (is_draw) sample.draws++;
+        }
+        sample.record_cycles = sshd::currentThreadCycles() - cycles_built;
+        if (!renderer.valid()) {
+            std::fprintf(stderr, "error: %s\n", renderer.error().c_str());
+            return false;
+        }
+        const sshd::RendererStats& renderer_after = renderer.stats();
+        sample.barriers = renderer_after.barriers - renderer_before.barriers;
+        sample.barriers_skipped = renderer_after.barriers_skipped - renderer_before.barriers_skipped;
+        sample.instances = renderer_after.rendering_instances - renderer_before.rendering_instances;
+        sample.state_calls = renderer_after.state_calls - renderer_before.state_calls;
+        sample.state_skipped = renderer_after.state_calls_skipped - renderer_before.state_calls_skipped;
+        sample.uploads_reused = renderer_after.vp_constant_uploads_reused - renderer_before.vp_constant_uploads_reused;
+        sample.tex_bind_hits = renderer_after.texture_bind_hits - renderer_before.texture_bind_hits;
+        sample.tex_bind_misses = renderer_after.texture_bind_misses - renderer_before.texture_bind_misses;
+
+        result.commands = commands.size();
+        result.draws = sample.draws;
+        result.skipped = renderer_after.draws_skipped - renderer_before.draws_skipped;
+        builder.recycle(std::move(commands));
+        sample.total_cycles = sshd::currentThreadCycles() - cycles_begin;
+        // The first iteration creates pipelines and uploads textures.
+        if (iteration > 0 || repeat == 1) samples.push_back(sample);
+    }
+
+    const double build = toMs(median(samples, &IterationSample::build_ns));
+    const double record_draw = toMs(median(samples, &IterationSample::record_draw_ns));
+    const double record_clear = toMs(median(samples, &IterationSample::record_clear_ns));
+    const double submit = toMs(median(samples, &IterationSample::submit_ns));
+    std::printf(
+            "timing: %s, %u iteration%s (%s), median ms per iteration: build %.2f (buildDraw %.2f), recordDraw %.2f, "
+            "recordClear %.2f, submit %.2f, gpu wait %.2f, total %.2f\n",
+            capture_name.c_str(), repeat, repeat == 1 ? "" : "s", repeat == 1 ? "none excluded" : "first excluded",
+            build, toMs(median(samples, &IterationSample::build_draw_ns)), record_draw, record_clear, submit,
+            toMs(median(samples, &IterationSample::gpu_wait_ns)), build + record_draw + record_clear + submit);
+    // Thread cycles do not count time the thread is not scheduled, so this is the line to compare builds by.
+    std::printf(
+            "cycles: %s, %u iteration%s (%s), median thread cycles per iteration: build %llu, record %llu, total %llu\n",
+            capture_name.c_str(), repeat, repeat == 1 ? "" : "s", repeat == 1 ? "none excluded" : "first excluded",
+            toUll(medianCycles(samples, &IterationSample::build_cycles)),
+            toUll(medianCycles(samples, &IterationSample::record_cycles)),
+            toUll(medianCycles(samples, &IterationSample::total_cycles)));
+    std::printf(
+            "builder: per iteration %llu draws, fp cache %llu hits %llu misses, vp cache %llu hits %llu misses, "
+            "vertex bytes %llu copied (union %llu), texture validations %llu (%llu bytes hashed in place, %llu bytes "
+            "read), texture unit cache %llu hits %llu misses, texture hash skips %llu (safety hashes %llu, unreported "
+            "changes %llu)\n",
+            toUll(median(samples, &IterationSample::draws)), toUll(median(samples, &IterationSample::fp_hits)),
+            toUll(median(samples, &IterationSample::fp_misses)), toUll(median(samples, &IterationSample::vp_hits)),
+            toUll(median(samples, &IterationSample::vp_misses)), toUll(median(samples, &IterationSample::bytes_copied)),
+            toUll(median(samples, &IterationSample::bytes_union)),
+            toUll(median(samples, &IterationSample::tex_validations)),
+            toUll(median(samples, &IterationSample::tex_hashed)), toUll(median(samples, &IterationSample::tex_read)),
+            toUll(median(samples, &IterationSample::tex_unit_hits)),
+            toUll(median(samples, &IterationSample::tex_unit_misses)),
+            toUll(median(samples, &IterationSample::tex_hash_skips)),
+            toUll(median(samples, &IterationSample::tex_safety_hashes)),
+            toUll(median(samples, &IterationSample::tex_unreported)));
+    std::printf(
+            "render: per iteration %llu barriers (%llu skipped), %llu rendering instances, %llu state calls (%llu "
+            "skipped), %llu vp constant uploads reused, texture binds %llu cached %llu full; upload memory %s\n",
+            toUll(median(samples, &IterationSample::barriers)),
+            toUll(median(samples, &IterationSample::barriers_skipped)),
+            toUll(median(samples, &IterationSample::instances)), toUll(median(samples, &IterationSample::state_calls)),
+            toUll(median(samples, &IterationSample::state_skipped)),
+            toUll(median(samples, &IterationSample::uploads_reused)),
+            toUll(median(samples, &IterationSample::tex_bind_hits)),
+            toUll(median(samples, &IterationSample::tex_bind_misses)),
+            memoryFlagNames(renderer.stats().upload_memory_flags).c_str());
+    if (render_options.gpu_timing) printGpuTiming(renderer, capture_name, repeat);
+    result.dlaa_text = dlaaStatsText(renderer);
+    return true;
+}
+
+// The closing lines of every run: the replay summary, the unimplemented census and the validation result.
+int printSummary(std::size_t commands, std::size_t draws, std::size_t skipped, std::size_t frames,
+                 std::uint32_t resolution_scale, sshd::AaMode requested_aa_mode, sshd::AaMode effective_aa_mode,
+                 const std::string& diff_text, const std::string& dlaa_text, const std::string& png_text,
+                 bool validation, bool validation_active, std::uint32_t validation_errors, int exit_code) {
+    const std::string frames_text = frames > 1 ? std::format(", frames {}", frames) : "";
+    const std::string scale_text = resolution_scale > 1 ? std::format(", resolution scale {}", resolution_scale) : "";
+    // The default (msaa) is not mentioned unless it replaced a requested dlaa; any other effective mode is, so a log
+    // shows which mode drew the frame.
+    std::string aa_text;
+    if (requested_aa_mode == sshd::AaMode::Dlaa && effective_aa_mode != sshd::AaMode::Dlaa) {
+        aa_text = std::format(", aa {} (dlaa unavailable)", sshd::aaModeName(effective_aa_mode));
+    } else if (effective_aa_mode != sshd::AaMode::Msaa) {
+        aa_text = std::format(", aa {}", sshd::aaModeName(effective_aa_mode));
+    }
+    std::printf("replay: %zu commands, %zu draws, %zu skipped%s%s%s%s\n", commands, draws, skipped, frames_text.c_str(),
+                scale_text.c_str(), aa_text.c_str(), diff_text.c_str());
+    if (!dlaa_text.empty()) std::printf("%s\n", dlaa_text.c_str());
+    // The game's census omits an empty section; a replay says so explicitly.
+    const std::string section = unimplementedSection();
+    std::printf("%s\n", section.empty() ? "census: rsx unimplemented 0 kinds" : section.c_str());
+    if (!png_text.empty()) std::printf("%s\n", png_text.c_str());
+    const char* validation_state = !validation ? "disabled" : validation_active ? "active" : "inactive";
+    std::printf("validation: %s, %u errors\n", validation_state, validation_errors);
+    if (validation_errors != 0) exit_code = 1;
+    return exit_code;
+}
+
+// One capture of a multi-frame replay with its own memory view and builder, so the guest memory of one frame never
+// leaks into the next one; only the renderer is shared.
+struct ReplayFrame {
+    explicit ReplayFrame(std::string capture_path)
+        : path(std::move(capture_path)), name(std::filesystem::path(path).stem().string()), builder(memory) {}
+    std::string path;
+    std::string name;
+    sshd::RsxCaptureReader reader;
+    sshd::ReplayRsxMemoryView memory;
+    sshd::RsxFrameBuilder builder;
+};
+
+// Writes DIR/<capture name>.png; `png_paths` keeps each file once, in the order it was first written.
+bool writeFramePng(const sshd::RgbImage& image, const ReplayFrame& frame, const std::string& out_dir,
+                   std::vector<std::string>& png_paths, std::string& error) {
+    const std::filesystem::path png_path = std::filesystem::path(out_dir) / (frame.name + ".png");
+    if (!sshd::writePngRgb(png_path, image, error)) return false;
+    const std::string text = "png: " + png_path.generic_string();
+    if (std::find(png_paths.begin(), png_paths.end(), text) == png_paths.end()) png_paths.push_back(text);
+    return true;
+}
+
+// The driver is named because one GPU can be listed by several (KosmicKrisp and MoltenVK on macOS).
+void printDevice(const sshd::VkContext& context) {
+    std::printf("render: vulkan device %s (driver %s)\n", std::string(context.deviceName()).c_str(),
+                std::string(context.driverName()).c_str());
+}
+
+// A perspective draw into an anti-aliased colour surface, which is what DLAA treats as the scene, as --motion-report
+// sees it. Candidates are the ones that also write depth.
+struct MotionReportDraw {
+    std::size_t draw_index = 0;  // among all draws of the frame
+    bool candidate = false;
+    sshd::MotionDrawSignature signature;
+    std::uint64_t content = 0;  // FNV-1a over the draw's vertex bytes
+    std::size_t bytes = 0;
+    std::uint64_t constants_key = 0;
+    bool blend = false, zeta_write = false;
+    std::uint32_t depth_func = 0, color_mask = 0;
+};
+
+std::vector<MotionReportDraw> collectMotionDraws(std::span<const sshd::RsxCommand> commands) {
+    std::vector<MotionReportDraw> result;
+    std::size_t draw_index = 0;
+    for (const sshd::RsxCommand& command : commands) {
+        const auto* draw = std::get_if<sshd::RsxDraw>(&command);
+        if (!draw) continue;
+        const std::size_t index = draw_index++;
+        const sshd::RsxSurface& color = draw->surfaces.color;
+        if (!draw->surfaces.has_color || color.samples_x * color.samples_y <= 1 || !draw->vp_constants ||
+            !sshd::dlaaPerspective(*draw->vp_constants)) {
+            continue;
+        }
+        MotionReportDraw& entry = result.emplace_back();
+        entry.draw_index = index;
+        entry.candidate = sshd::objectMotionCandidate(*draw);
+        entry.signature = sshd::motionDrawSignature(*draw);
+        entry.content = 0xCBF29CE484222325ull;
+        for (const std::uint8_t byte : draw->vertex_data) entry.content = (entry.content ^ byte) * 0x100000001B3ull;
+        entry.bytes = draw->vertex_data.size();
+        // An unnamed snapshot (id 0) is told apart by its address.
+        entry.constants_key = draw->vp_constants_id != 0 ? draw->vp_constants_id
+                                                         : reinterpret_cast<std::uintptr_t>(draw->vp_constants.get());
+        entry.blend = draw->raster.blend;
+        entry.zeta_write = sshd::rsxZetaWriteEnabled(draw->raster, draw->surfaces.depth_format);
+        entry.depth_func = draw->raster.depth_func;
+        entry.color_mask = draw->raster.color_mask;
+    }
+    return result;
+}
+
+constexpr sshd::MotionMatchRule kMotionRules[] = {
+        sshd::MotionMatchRule::Ordered, sshd::MotionMatchRule::AddressThenOrdered, sshd::MotionMatchRule::AddressOnly};
+
+// Match of every candidate of `current` (in draw order) against the candidates of `previous` under `rule`.
+std::vector<std::optional<std::uint32_t>> matchMotionDraws(std::span<const sshd::MotionDrawSignature> previous,
+                                                           std::span<const sshd::MotionDrawSignature> current,
+                                                           sshd::MotionMatchRule rule) {
+    sshd::MotionDrawMatcher matcher;
+    matcher.beginFrame(previous, rule);
+    std::vector<std::optional<std::uint32_t>> matches;
+    for (const sshd::MotionDrawSignature& signature : current) matches.push_back(matcher.match(signature));
+    return matches;
+}
+
+// Prints the "motion report:" line (and the "motion draw:" lines with `per_draw`) of every frame, each against the
+// frame before it in the list; the first frame has no previous one.
+void printMotionReport(std::span<const std::unique_ptr<ReplayFrame>> frames,
+                       std::span<const std::vector<sshd::RsxCommand>> commands, bool per_draw) {
+    std::vector<MotionReportDraw> previous;
+    for (std::size_t frame = 0; frame < frames.size(); frame++) {
+        const std::vector<MotionReportDraw> draws = collectMotionDraws(commands[frame]);
+        std::vector<const MotionReportDraw*> candidates, previous_candidates;
+        std::vector<sshd::MotionDrawSignature> signatures, previous_signatures;
+        for (const MotionReportDraw& draw : draws) {
+            if (draw.candidate) {
+                candidates.push_back(&draw);
+                signatures.push_back(draw.signature);
+            }
+        }
+        for (const MotionReportDraw& draw : previous) {
+            if (draw.candidate) {
+                previous_candidates.push_back(&draw);
+                previous_signatures.push_back(draw.signature);
+            }
+        }
+        std::vector<std::optional<std::uint32_t>> matches[std::size(kMotionRules)];
+        for (std::size_t rule = 0; rule < std::size(kMotionRules); rule++) {
+            matches[rule] = matchMotionDraws(previous_signatures, signatures, kMotionRules[rule]);
+        }
+
+        std::map<std::uint64_t, std::size_t> layouts;
+        std::set<std::uint64_t> constant_sets;
+        std::size_t vertex_bytes = 0, transitions = 0;
+        for (const MotionReportDraw* draw : candidates) {
+            layouts[draw->signature.layout]++;
+            constant_sets.insert(draw->constants_key);
+            vertex_bytes += draw->bytes;
+        }
+        for (std::size_t i = 1; i < draws.size(); i++) transitions += draws[i].candidate != draws[i - 1].candidate;
+        std::size_t repeated = 0;
+        for (const auto& [layout, count] : layouts) repeated += count > 1;
+
+        // Address and content are compared on the default rule's matches.
+        constexpr std::size_t kDefaultRule = 1;
+        static_assert(kMotionRules[kDefaultRule] == sshd::MotionMatchRule::AddressThenOrdered);
+        std::size_t matched[std::size(kMotionRules)] = {};
+        std::size_t same_address = 0, changed_address = 0, content_same_address = 0, content_changed_address = 0;
+        for (std::size_t rule = 0; rule < std::size(kMotionRules); rule++) {
+            for (const std::optional<std::uint32_t>& match : matches[rule]) matched[rule] += match.has_value();
+        }
+        for (std::size_t i = 0; i < candidates.size(); i++) {
+            const std::optional<std::uint32_t>& match = matches[kDefaultRule][i];
+            if (!match) continue;
+            const MotionReportDraw& before = *previous_candidates[*match];
+            const bool same = before.signature.address == candidates[i]->signature.address;
+            const bool changed = before.content != candidates[i]->content;
+            (same ? same_address : changed_address)++;
+            (same ? content_same_address : content_changed_address) += changed;
+        }
+
+        std::printf(
+                "motion report: frame %zu (%s), perspective scene draws %zu, candidates %zu, layouts %zu (%zu "
+                "repeated), matched ordered %zu, address-then-ordered %zu, address %zu, addresses same %zu changed "
+                "%zu, content changed same address %zu changed address %zu, vertex bytes %zu, constant sets %zu, "
+                "candidate transitions %zu\n",
+                frame + 1, frames[frame]->name.c_str(), draws.size(), candidates.size(), layouts.size(), repeated,
+                matched[0], matched[1], matched[2], same_address, changed_address, content_same_address,
+                content_changed_address, vertex_bytes, constant_sets.size(), transitions);
+
+        if (per_draw) {
+            std::size_t candidate = 0;
+            for (const MotionReportDraw& draw : draws) {
+                std::printf(
+                        "motion draw: frame %zu #%zu candidate %d layout %016llx address %016llx content %016llx "
+                        "bytes %zu blend %d zw %d zf %x cmask %x",
+                        frame + 1, draw.draw_index, draw.candidate ? 1 : 0,
+                        static_cast<unsigned long long>(draw.signature.layout),
+                        static_cast<unsigned long long>(draw.signature.address),
+                        static_cast<unsigned long long>(draw.content), draw.bytes, draw.blend ? 1 : 0,
+                        draw.zeta_write ? 1 : 0, draw.depth_func, draw.color_mask);
+                static constexpr const char* kNames[] = {"ordered", "address-then-ordered", "address"};
+                for (std::size_t rule = 0; rule < std::size(kMotionRules); rule++) {
+                    if (draw.candidate && matches[rule][candidate]) {
+                        std::printf(" %s %u", kNames[rule], *matches[rule][candidate]);
+                    } else {
+                        std::printf(" %s -", kNames[rule]);
+                    }
+                }
+                std::printf("\n");
+                candidate += draw.candidate;
+            }
+        }
+        previous = draws;
+    }
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    std::vector<std::string> capture_paths;
+    std::string out_dir;
+    std::string compare_path;
+    std::string shader_cache;
+    bool validation = true;
+    bool quiet = false;
+    bool gpu_timing = false;
+    std::uint32_t repeat = 0;  // --repeat: 0 means a single replay with the usual output
+    std::uint32_t loop = 1;    // --loop: how many times the list of captures is played
+    bool has_loop = false;
+    std::uint32_t resolution_scale = 1;
+    sshd::AaMode aa_mode = sshd::AaMode::Msaa;
+    sshd::VkDriverChoice vk_driver = sshd::VkDriverChoice::Auto;
+    sshd::DlaaDebug dlaa_debug;
+    bool has_dlaa_option = false;  // a --dlaa-* option was given, which needs --aa-mode dlaa
+    sshd::FgDebug fg_debug;
+    bool has_fg_mv_flip = false;  // --fg-mv-flip was given, which needs --fg-mv-check
+    bool motion_report = false, motion_report_draws = false;
+    std::uint32_t rect[4] = {};  // --compare-rect: x, y, width, height
+    bool has_rect = false;
+    // Thresholds of --compare; a NaN limit is not checked.
+    double max_diff = std::nan(""), max_mean = std::nan(""), max_differing = std::nan("");
+    for (int i = 1; i < argc; i++) {
+        const std::string_view arg = argv[i];
+        if (arg == "--no-validation") {
+            validation = false;
+            continue;
+        }
+        if (arg == "--gpu-timing") {
+            gpu_timing = true;
+            continue;
+        }
+        if (arg == "--quiet") {
+            quiet = true;
+            continue;
+        }
+        if (arg == "--repeat") {
+            char* end = nullptr;
+            const long value = i + 1 < argc ? std::strtol(argv[i + 1], &end, 10) : 0;
+            if (i + 1 >= argc || end == argv[i + 1] || *end != '\0' || value < 1 || value > 100000) {
+                std::fputs("error: --repeat takes a whole number from 1 to 100000\n", stderr);
+                return 2;
+            }
+            repeat = static_cast<std::uint32_t>(value);
+            i++;
+            continue;
+        }
+        if (arg == "--loop") {
+            char* end = nullptr;
+            const long value = i + 1 < argc ? std::strtol(argv[i + 1], &end, 10) : 0;
+            if (i + 1 >= argc || end == argv[i + 1] || *end != '\0' || value < 1 || value > 1000) {
+                std::fputs("error: --loop takes a whole number from 1 to 1000\n", stderr);
+                return 2;
+            }
+            loop = static_cast<std::uint32_t>(value);
+            has_loop = true;
+            i++;
+            continue;
+        }
+        if (arg == "--resolution-scale") {
+            char* end = nullptr;
+            const long value = i + 1 < argc ? std::strtol(argv[i + 1], &end, 10) : 0;
+            if (i + 1 >= argc || end == argv[i + 1] || *end != '\0' || value < 1 ||
+                value > static_cast<long>(sshd::kMaxResolutionScale)) {
+                std::fprintf(stderr, "error: --resolution-scale takes a whole number from 1 to %u\n",
+                             sshd::kMaxResolutionScale);
+                return 2;
+            }
+            resolution_scale = static_cast<std::uint32_t>(value);
+            i++;
+            continue;
+        }
+        if (arg == "--aa-mode") {
+            const std::optional<sshd::AaMode> mode = i + 1 < argc ? sshd::parseAaMode(argv[i + 1]) : std::nullopt;
+            if (!mode) {
+                std::fputs("error: --aa-mode takes supersample|msaa|dlaa\n", stderr);
+                return 2;
+            }
+            aa_mode = *mode;
+            i++;
+            continue;
+        }
+        if (arg == "--vk-driver") {
+            const std::optional<sshd::VkDriverChoice> choice =
+                    i + 1 < argc ? sshd::parseVkDriverChoice(argv[i + 1]) : std::nullopt;
+            if (!choice) {
+                std::fputs("error: --vk-driver takes auto|moltenvk|kosmickrisp\n", stderr);
+                return 2;
+            }
+            vk_driver = *choice;
+            i++;
+            continue;
+        }
+        if (arg == "--dlaa-jitter") {
+            const std::string_view value = i + 1 < argc ? std::string_view(argv[i + 1]) : std::string_view();
+            if (value != "on" && value != "off") {
+                std::fputs("error: --dlaa-jitter takes on|off\n", stderr);
+                return 2;
+            }
+            dlaa_debug.jitter = value == "on";
+            has_dlaa_option = true;
+            i++;
+            continue;
+        }
+        if (arg == "--dlaa-jitter-flip") {
+            const std::string_view value = i + 1 < argc ? std::string_view(argv[i + 1]) : std::string_view();
+            if (value != "none" && value != "x" && value != "y" && value != "xy") {
+                std::fputs("error: --dlaa-jitter-flip takes none|x|y|xy\n", stderr);
+                return 2;
+            }
+            dlaa_debug.flip_jitter_x = value == "x" || value == "xy";
+            dlaa_debug.flip_jitter_y = value == "y" || value == "xy";
+            has_dlaa_option = true;
+            i++;
+            continue;
+        }
+        if (arg == "--dlaa-camera") {
+            const std::string_view value = i + 1 < argc ? std::string_view(argv[i + 1]) : std::string_view();
+            if (value != "on" && value != "off" && value != "reset") {
+                std::fputs("error: --dlaa-camera takes on|off|reset\n", stderr);
+                return 2;
+            }
+            dlaa_debug.camera = value == "on"    ? sshd::DlaaCamera::On
+                                : value == "off" ? sshd::DlaaCamera::Off
+                                                 : sshd::DlaaCamera::Reset;
+            has_dlaa_option = true;
+            i++;
+            continue;
+        }
+        if (arg == "--dlaa-clip-flip-y") {
+            const std::string_view value = i + 1 < argc ? std::string_view(argv[i + 1]) : std::string_view();
+            if (value != "on" && value != "off") {
+                std::fputs("error: --dlaa-clip-flip-y takes on|off\n", stderr);
+                return 2;
+            }
+            dlaa_debug.flip_clip_y = value == "on";
+            has_dlaa_option = true;
+            i++;
+            continue;
+        }
+        if (arg == "--dlaa-mv-invalid") {
+            const std::string_view value = i + 1 < argc ? std::string_view(argv[i + 1]) : std::string_view();
+            if (value != "zero" && value != "unset") {
+                std::fputs("error: --dlaa-mv-invalid takes zero|unset\n", stderr);
+                return 2;
+            }
+            dlaa_debug.mvec_invalid_zero = value == "zero";
+            has_dlaa_option = true;
+            i++;
+            continue;
+        }
+        if (arg == "--dlaa-motion") {
+            const std::string_view value = i + 1 < argc ? std::string_view(argv[i + 1]) : std::string_view();
+            if (value != "matrices" && value != "camera" && value != "object") {
+                std::fputs("error: --dlaa-motion takes matrices|camera|object\n", stderr);
+                return 2;
+            }
+            dlaa_debug.motion = value == "matrices" ? sshd::DlaaMotion::Matrices
+                                : value == "camera" ? sshd::DlaaMotion::Camera
+                                                    : sshd::DlaaMotion::Object;
+            has_dlaa_option = true;
+            i++;
+            continue;
+        }
+        if (arg == "--fg-mv-check") {
+            fg_debug.mv_check = true;
+            continue;
+        }
+        if (arg == "--fg-mv-flip") {
+            const std::string_view value = i + 1 < argc ? std::string_view(argv[i + 1]) : std::string_view();
+            if (value != "none" && value != "x" && value != "y" && value != "xy") {
+                std::fputs("error: --fg-mv-flip takes none|x|y|xy\n", stderr);
+                return 2;
+            }
+            fg_debug.mv_flip_x = value == "x" || value == "xy";
+            fg_debug.mv_flip_y = value == "y" || value == "xy";
+            has_fg_mv_flip = true;
+            i++;
+            continue;
+        }
+        if (arg == "--motion-report") {
+            motion_report = true;
+            // The value is optional and a capture may follow, so only "draws" and a name that is not a capture are
+            // taken as the value.
+            if (i + 1 < argc && std::string_view(argv[i + 1]) == "draws") {
+                motion_report_draws = true;
+                i++;
+            } else if (i + 1 < argc && !std::string_view(argv[i + 1]).starts_with("--") &&
+                       !std::string_view(argv[i + 1]).ends_with(".sshdcap")) {
+                std::fputs("error: --motion-report takes no value or draws\n", stderr);
+                return 2;
+            }
+            continue;
+        }
+        if (arg == "--compare-rect") {
+            if (i + 1 >= argc || !parseRect(argv[i + 1], rect)) {
+                std::fputs("error: --compare-rect takes X,Y,W,H, four whole numbers with W and H above 0\n", stderr);
+                return 2;
+            }
+            has_rect = true;
+            i++;
+            continue;
+        }
+        if (arg == "--max-diff" || arg == "--max-mean" || arg == "--max-differing") {
+            char* end = nullptr;
+            const double value = i + 1 < argc ? std::strtod(argv[i + 1], &end) : 0.0;
+            if (i + 1 >= argc || end == argv[i + 1] || *end != '\0') {
+                printUsage();
+                return 2;
+            }
+            (arg == "--max-diff" ? max_diff : arg == "--max-mean" ? max_mean : max_differing) = value;
+            i++;
+            continue;
+        }
+        if (arg == "--out" || arg == "--compare" || arg == "--shader-cache") {
+            if (i + 1 >= argc) {
+                printUsage();
+                return 2;
+            }
+            std::string& target = arg == "--out" ? out_dir : arg == "--compare" ? compare_path : shader_cache;
+            target = argv[++i];
+            continue;
+        }
+        if (arg.starts_with("--")) {
+            printUsage();
+            return 2;
+        }
+        capture_paths.emplace_back(arg);
+    }
+    const bool has_threshold = !std::isnan(max_diff) || !std::isnan(max_mean) || !std::isnan(max_differing);
+    if (capture_paths.empty() || ((has_threshold || has_rect) && compare_path.empty())) {
+        printUsage();
+        return 2;
+    }
+    if (has_dlaa_option && aa_mode != sshd::AaMode::Dlaa) {
+        std::fputs("error: the --dlaa-* options need --aa-mode dlaa\n", stderr);
+        return 2;
+    }
+    if (has_fg_mv_flip && !fg_debug.mv_check) {
+        std::fputs("error: --fg-mv-flip needs --fg-mv-check\n", stderr);
+        return 2;
+    }
+    if (fg_debug.mv_check && aa_mode != sshd::AaMode::Dlaa) {
+        std::fputs("error: --fg-mv-check needs --aa-mode dlaa\n", stderr);
+        return 2;
+    }
+    if (gpu_timing && repeat == 0) {
+        std::fputs("error: --gpu-timing needs --repeat\n", stderr);
+        return 2;
+    }
+    if (repeat != 0 && fg_debug.mv_check) {
+        std::fputs("error: --repeat cannot be combined with --fg-mv-check\n", stderr);
+        return 2;
+    }
+    if (repeat != 0 && motion_report) {
+        std::fputs("error: --repeat cannot be combined with --motion-report\n", stderr);
+        return 2;
+    }
+    if (repeat != 0 && (!out_dir.empty() || !compare_path.empty())) {
+        // Later iterations draw over the previous iteration's targets, so the image is not the capture's frame.
+        std::fputs("error: --repeat cannot be combined with --out or --compare\n", stderr);
+        return 2;
+    }
+    if (repeat != 0 && (capture_paths.size() > 1 || has_loop)) {
+        std::fputs("error: --repeat takes one capture and cannot be combined with --loop\n", stderr);
+        return 2;
+    }
+
+    std::string error;
+    std::vector<std::unique_ptr<ReplayFrame>> frames;
+    for (const std::string& path : capture_paths) {
+        frames.push_back(std::make_unique<ReplayFrame>(path));
+        if (!frames.back()->reader.load(path, error)) {
+            std::fprintf(stderr, "error: %s\n", error.c_str());
+            return 1;
+        }
+    }
+
+    sshd::setRsxUnimplementedProvider(&unimplementedCensus, &sshd::rsxUnimplementedReset);
+    sshd::rsxUnimplementedReset();
+
+    if (repeat != 0) {
+        sshd::VkContextOptions timed_context_options;
+        timed_context_options.validation = validation;
+        timed_context_options.driver = vk_driver;
+        timed_context_options.streamline = aa_mode == sshd::AaMode::Dlaa;
+        std::unique_ptr<sshd::VkContext> timed_context = sshd::createVkContext(timed_context_options, error);
+        if (!timed_context) {
+            std::fprintf(stderr, "error: --repeat needs a Vulkan device: %s\n", error.c_str());
+            return 1;
+        }
+        printDevice(*timed_context);
+        sshd::RenderOptions timed_options;
+        timed_options.shader_cache = shader_cache;
+        timed_options.resolution_scale = resolution_scale;
+        timed_options.aa_mode = aa_mode;
+        timed_options.dlaa_debug = dlaa_debug;
+        timed_options.gpu_timing = gpu_timing;
+        TimedResult timed;
+        const bool ok = runTimedReplay(frames.front()->reader, frames.front()->name, repeat, *timed_context,
+                                       timed_options, timed);
+        // The renderer is gone by now, so errors from its teardown are counted.
+        return printSummary(timed.commands, timed.draws, timed.skipped, 1, resolution_scale, aa_mode, timed.aa_mode, {},
+                            timed.dlaa_text, {}, validation, timed_context->validationEnabled(),
+                            timed_context->validationErrorCount(), ok ? 0 : 1);
+    }
+
+    // The first pass over the list is built and printed before the device is created; later passes are rebuilt
+    // right before they run, as --repeat does.
+    const std::size_t frame_count = frames.size() * loop;
+    std::vector<std::vector<sshd::RsxCommand>> first_pass;
+    std::size_t first_pass_commands = 0, first_pass_draws = 0;
+    for (const std::unique_ptr<ReplayFrame>& frame : frames) {
+        sshd::replayCapture(frame->reader, frame->memory, frame->builder);
+        std::vector<sshd::RsxCommand>& commands = first_pass.emplace_back(frame->builder.takeCommands());
+        for (const sshd::RsxCommand& command : commands) {
+            if (const auto* clear = std::get_if<sshd::RsxClear>(&command)) {
+                if (!quiet) printClear(*clear);
+            } else if (const auto* draw = std::get_if<sshd::RsxDraw>(&command)) {
+                if (!quiet) printDraw(*draw, frame->builder.knownSurfaces());
+                first_pass_draws++;
+            } else if (!quiet) {
+                const auto& flip = std::get<sshd::RsxFlip>(command);
+                std::printf("flip buffer=%u %ux%u@0x%x\n", flip.buffer, flip.width, flip.height, flip.offset);
+            }
+        }
+        first_pass_commands += commands.size();
+        // Frame boundaries are flips: a frame that does not end with one would leak its draws into the next frame.
+        if (frame_count > 1 && (commands.empty() || !std::holds_alternative<sshd::RsxFlip>(commands.back()))) {
+            std::fprintf(stderr,
+                         "error: %s does not end with a flip, so it cannot be replayed as one frame of several\n",
+                         frame->name.c_str());
+            return 2;
+        }
+    }
+    if (motion_report) printMotionReport(frames, first_pass, motion_report_draws);
+    std::size_t commands_total = first_pass_commands * loop;
+    std::size_t draws = first_pass_draws * loop;
+
+    // Without a Vulkan device the replay still prints the command list and counts every draw as skipped.
+    sshd::VkContextOptions context_options;
+    context_options.validation = validation;
+    context_options.driver = vk_driver;
+    context_options.streamline = aa_mode == sshd::AaMode::Dlaa;
+    std::unique_ptr<sshd::VkContext> context = sshd::createVkContext(context_options, error);
+    if (context) {
+        printDevice(*context);
+    } else {
+        std::printf("render: unavailable: %s\n", error.c_str());
+    }
+
+    int exit_code = 0;
+    std::size_t skipped = draws;
+    std::string diff_text;
+    std::string png_text;
+    std::string dlaa_text;
+    std::uint32_t validation_errors = 0;
+    bool validation_active = false;
+    sshd::AaMode effective_aa_mode = aa_mode;
+    if (context) {
+        sshd::RenderOptions render_options;
+        render_options.shader_cache = shader_cache;
+        render_options.resolution_scale = resolution_scale;
+        render_options.aa_mode = aa_mode;
+        render_options.dlaa_debug = dlaa_debug;
+        render_options.fg_debug = fg_debug;
+        render_options.readback_all = true;  // the replay reads the display after its last flip
+        {
+            sshd::RsxRenderer renderer(*context, render_options);
+            effective_aa_mode = renderer.aaMode();
+
+            // Every frame but the last is executed here; the last one is read back below with the --compare checks.
+            std::vector<std::string> png_paths;
+            std::size_t executed_commands = 0, executed_draws = 0;
+            std::vector<std::uint8_t> bgra;
+            std::uint32_t width = 0;
+            std::uint32_t height = 0;
+            std::uint64_t fg_mv_printed = 0;
+            // Object motion draws of the latest frame paired with the previous one.
+            std::uint64_t last_frame_matched = 0;
+            for (std::uint32_t pass = 0; pass < loop && renderer.valid(); pass++) {
+                for (std::size_t index = 0; index < frames.size() && renderer.valid(); index++) {
+                    ReplayFrame& frame = *frames[index];
+                    std::vector<sshd::RsxCommand> commands;
+                    if (pass == 0) {
+                        commands = std::move(first_pass[index]);
+                    } else {
+                        sshd::replayCapture(frame.reader, frame.memory, frame.builder);
+                        commands = frame.builder.takeCommands();
+                    }
+                    executed_commands += commands.size();
+                    for (const sshd::RsxCommand& command : commands) {
+                        if (std::holds_alternative<sshd::RsxDraw>(command)) executed_draws++;
+                    }
+                    const std::uint64_t matched_before = renderer.stats().object_motion_matched;
+                    renderer.execute(commands);
+                    frame.builder.recycle(std::move(commands));
+                    const sshd::RendererStats& stats = renderer.stats();
+                    last_frame_matched = stats.object_motion_matched - matched_before;
+                    if (stats.fg_mv_checks != fg_mv_printed) {
+                        fg_mv_printed = stats.fg_mv_checks;
+                        const sshd::FgWarpStats& warp = stats.fg_mv_last;
+                        std::printf(
+                                "fg mv: frame %zu, warp mean %.3f, no-motion mean %.3f, %u pixels, camera warp mean "
+                                "%.3f, object pixels %u, object warp mean %.3f, object camera warp mean %.3f%s\n",
+                                pass * frames.size() + index + 1, warp.warp_mean, warp.no_motion_mean, warp.pixels,
+                                warp.camera_warp_mean, warp.object_pixels, warp.object_warp_mean,
+                                warp.object_camera_warp_mean, stats.fg_mv_last_reset ? ", reset" : "");
+                    }
+                    const bool last_frame = pass + 1 == loop && index + 1 == frames.size();
+                    if (!last_frame && !out_dir.empty() && renderer.valid()) {
+                        if (!renderer.readDisplay(bgra, width, height)) {
+                            std::fprintf(stderr, "error: no frame to display after %s\n", frame.name.c_str());
+                            exit_code = 1;
+                        } else if (!writeFramePng(sshd::rgbFromBgra(bgra, width, height), frame, out_dir, png_paths,
+                                                  error)) {
+                            std::fprintf(stderr, "error: %s\n", error.c_str());
+                            exit_code = 1;
+                        }
+                    }
+                }
+            }
+            commands_total = executed_commands;
+            draws = executed_draws;
+            skipped = renderer.stats().draws_skipped;
+            dlaa_text = dlaaStatsText(renderer);
+            if (renderer.valid() && renderer.objectMotionActive() && dlaa_debug.motion == sshd::DlaaMotion::Object) {
+                // A matched draw of the latest frame writes the depth of its fragments to the second attachment, so a
+                // read-back with no such pixel means the variant draws did not write it.
+                std::vector<std::uint32_t> object_words;
+                std::uint32_t object_width = 0, object_height = 0;
+                if (renderer.readObjectMotion(object_words, object_width, object_height)) {
+                    std::size_t written = 0, moving = 0;
+                    for (std::size_t texel = 0; texel + 1 < object_words.size(); texel += 2) {
+                        if (object_words[texel + 1] == sshd::kObjectMotionNone) continue;
+                        written++;
+                        // Ignore the sign bits so -0.0 halves do not count as a vector.
+                        if ((object_words[texel] & 0x7FFF7FFFu) != 0) moving++;
+                    }
+                    dlaa_text += std::format("\nobject image: {}x{}, {} pixels written, {} with a vector", object_width,
+                                             object_height, written, moving);
+                    if (last_frame_matched != 0 && written == 0) {
+                        std::fputs("error: the object motion draws wrote nothing to the object image\n", stderr);
+                        exit_code = 1;
+                    }
+                }
+            }
+
+            if (renderer.valid() && renderer.readDisplay(bgra, width, height)) {
+                const sshd::RgbImage image = sshd::rgbFromBgra(bgra, width, height);
+                if (!out_dir.empty()) {
+                    if (!writeFramePng(image, *frames.back(), out_dir, png_paths, error)) {
+                        std::fprintf(stderr, "error: %s\n", error.c_str());
+                        exit_code = 1;
+                    }
+                }
+                for (const std::string& text : png_paths) png_text += (png_text.empty() ? "" : "\n") + text;
+                if (!compare_path.empty()) {
+                    sshd::RgbImage reference;
+                    sshd::ImageDiff diff;
+                    std::uint32_t factor_x = 1;
+                    std::uint32_t factor_y = 1;
+                    bool compared = sshd::readPngRgb(compare_path, reference, error);
+                    // A frame rendered at a higher resolution scale is brought to the reference's size first;
+                    // any other size mismatch is left to diffImages to report.
+                    if (compared && reference.width != 0 && reference.height != 0 &&
+                        image.width % reference.width == 0 && image.height % reference.height == 0) {
+                        factor_x = image.width / reference.width;
+                        factor_y = image.height / reference.height;
+                    }
+                    sshd::RgbImage reduced;
+                    if (compared && (factor_x > 1 || factor_y > 1)) {
+                        compared = sshd::downsampleBox(image, factor_x, factor_y, reduced, error);
+                    }
+                    const sshd::RgbImage& shown = factor_x > 1 || factor_y > 1 ? reduced : image;
+                    if (compared && has_rect) {
+                        // The rectangle is in reference pixels, so it is cut after the downsample.
+                        sshd::RgbImage shown_rect;
+                        sshd::RgbImage reference_rect;
+                        compared =
+                                sshd::cropRgb(shown, rect[0], rect[1], rect[2], rect[3], shown_rect, error) &&
+                                sshd::cropRgb(reference, rect[0], rect[1], rect[2], rect[3], reference_rect, error) &&
+                                sshd::diffImages(shown_rect, reference_rect, diff, error);
+                    } else if (compared) {
+                        compared = sshd::diffImages(shown, reference, diff, error);
+                    }
+                    if (compared) {
+                        char text[200];
+                        std::snprintf(text, sizeof(text), "; diff max %u mean %.3f differing %.3f%%", diff.max,
+                                      diff.mean, diff.differing_percent);
+                        if (factor_x > 1 || factor_y > 1) {
+                            std::snprintf(text + std::strlen(text), sizeof(text) - std::strlen(text),
+                                          "; downsampled %ux%u", factor_x, factor_y);
+                        }
+                        if (has_rect) {
+                            std::snprintf(text + std::strlen(text), sizeof(text) - std::strlen(text),
+                                          "; rect %ux%u+%u+%u", rect[2], rect[3], rect[0], rect[1]);
+                        }
+                        diff_text = text;
+                        const auto exceeded = [](double value, double limit) {
+                            return !std::isnan(limit) && value > limit;
+                        };
+                        if (exceeded(diff.max, max_diff) || exceeded(diff.mean, max_mean) ||
+                            exceeded(diff.differing_percent, max_differing)) {
+                            std::fprintf(stderr, "error: frame differs from the reference beyond the thresholds (%s)\n",
+                                         text + 2);
+                            exit_code = 1;
+                        }
+                    } else {
+                        std::fprintf(stderr, "error: %s\n", error.c_str());
+                        exit_code = 1;
+                    }
+                }
+            } else {
+                std::fprintf(stderr, "error: no frame to display%s%s\n", renderer.valid() ? "" : ": ",
+                             renderer.error().c_str());
+                exit_code = 1;
+            }
+        }
+        // Read after the renderer is gone so errors from its teardown count too.
+        validation_active = context->validationEnabled();
+        validation_errors = context->validationErrorCount();
+    }
+
+    return printSummary(commands_total, draws, skipped, frame_count, resolution_scale, aa_mode, effective_aa_mode,
+                        diff_text, dlaa_text, png_text, validation, validation_active, validation_errors, exit_code);
+}

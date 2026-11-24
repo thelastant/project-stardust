@@ -1,0 +1,1156 @@
+{
+  "schema": 1,
+  "image": "eboot_edgezlib_inflate",
+  "input": {
+    "container_sha256": "e6a286c20571264388a5ad93c42903de9b9a00c42595a4f4334c1441bfce89a1",
+    "image_sha256": "a77dc6a4576d9a0458a8878dff6bd67109e90d83679edb76b3ebd915fe41d25a",
+    "registry_entry_sha256": "51d2de89b46ae9f54fc8a659f1a5696cd65d737484f8858b2cecaa4f093581dd"
+  },
+  "segments": [{"ls": "0x3000", "size": "0x8650", "code": true}, {"ls": "0xb680", "size": "0x30", "code": false}],
+  "entry": "0x3050",
+  "functions": [
+    {
+      "entry": "0x3010",
+      "sources": ["brsl"],
+      "ranges": [["0x3010", "0x3040"]],
+      "call_sites": [],
+      "returns": ["0x303c"],
+      "indirect": []
+    },
+    {
+      "entry": "0x3040",
+      "sources": ["brsl"],
+      "ranges": [["0x3040", "0x3050"], ["0xa568", "0xa5a8"]],
+      "call_sites": [{"site": "0x3044", "kind": "brsl", "target": "0xa600", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x3050",
+      "sources": ["entry"],
+      "ranges": [["0x3050", "0x30d4"]],
+      "call_sites": [
+        {"site": "0x30b8", "kind": "brsl", "target": "0x3010", "link": 0},
+        {"site": "0x30cc", "kind": "brsl", "target": "0x8840", "link": 0},
+        {"site": "0x30d0", "kind": "brsl", "target": "0xa440", "link": 0}
+      ],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x30d8",
+      "sources": ["brsl"],
+      "ranges": [["0x30d8", "0x35c4"]],
+      "call_sites": [
+        {"site": "0x3164", "kind": "brsl", "target": "0x8f98", "link": 0},
+        {"site": "0x3174", "kind": "brsl", "target": "0x8dc0", "link": 0},
+        {"site": "0x3214", "kind": "brsl", "target": "0x35c8", "link": 0},
+        {"site": "0x3254", "kind": "brsl", "target": "0xa2c0", "link": 0},
+        {"site": "0x3270", "kind": "brsl", "target": "0x88b8", "link": 0},
+        {"site": "0x327c", "kind": "brsl", "target": "0x8870", "link": 0},
+        {"site": "0x3290", "kind": "brsl", "target": "0x8970", "link": 0},
+        {"site": "0x32dc", "kind": "brsl", "target": "0x9520", "link": 0},
+        {"site": "0x3334", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x3354", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x336c", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x3384", "kind": "brsl", "target": "0xa380", "link": 0},
+        {"site": "0x33a4", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x33c4", "kind": "brsl", "target": "0x7018", "link": 0},
+        {"site": "0x33e4", "kind": "brsl", "target": "0x7a48", "link": 0},
+        {"site": "0x34bc", "kind": "brsl", "target": "0xa470", "link": 0}
+      ],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x35c8",
+      "sources": ["brsl"],
+      "ranges": [["0x35c8", "0x3710"]],
+      "call_sites": [{"site": "0x36cc", "kind": "brsl", "target": "0x3ad0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x3710",
+      "sources": ["promoted"],
+      "ranges": [["0x3710", "0x3748"], ["0x3948", "0x3960"]],
+      "call_sites": [{"site": "0x394c", "kind": "brsl", "target": "0x3c08", "link": 0}],
+      "returns": [],
+      "indirect": [{"site": "0x3744", "kind": "bi", "resolution": "constant", "targets": ["0x3748"]}]
+    },
+    {
+      "entry": "0x3748",
+      "sources": ["constant"],
+      "ranges": [["0x3748", "0x378c"]],
+      "call_sites": [{"site": "0x376c", "kind": "brsl", "target": "0x9520", "link": 0}],
+      "returns": [],
+      "indirect": [{"site": "0x3788", "kind": "bihz", "resolution": "constant", "targets": ["0x378c"]}]
+    },
+    {
+      "entry": "0x378c",
+      "sources": ["constant"],
+      "ranges": [["0x378c", "0x37e0"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x37e0",
+      "sources": ["promoted"],
+      "ranges": [["0x37e0", "0x3830"], ["0x3868", "0x3890"], ["0x38f0", "0x3904"], ["0x392c", "0x3934"]],
+      "call_sites": [
+        {"site": "0x37ec", "kind": "brsl", "target": "0x4310", "link": 0},
+        {"site": "0x3884", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x388c", "kind": "brsl", "target": "0x3c08", "link": 0},
+        {"site": "0x38f0", "kind": "brsl", "target": "0x7a48", "link": 0}
+      ],
+      "returns": [],
+      "indirect": [{"site": "0x3900", "kind": "bi", "resolution": "constant", "targets": ["0x3904"]}]
+    },
+    {
+      "entry": "0x3830",
+      "sources": ["promoted"],
+      "ranges": [["0x3830", "0x3868"], ["0x3934", "0x3948"], ["0x3960", "0x396c"]],
+      "call_sites": [{"site": "0x3964", "kind": "brsl", "target": "0x3c08", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x3890",
+      "sources": ["promoted"],
+      "ranges": [["0x3890", "0x38f0"]],
+      "call_sites": [],
+      "returns": ["0x38ec"],
+      "indirect": []
+    },
+    {
+      "entry": "0x3904",
+      "sources": ["constant"],
+      "ranges": [["0x3904", "0x3920"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": [{"site": "0x391c", "kind": "bihz", "resolution": "constant", "targets": ["0x3920"]}]
+    },
+    {
+      "entry": "0x3920",
+      "sources": ["constant"],
+      "ranges": [["0x3920", "0x392c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x3ad0",
+      "sources": ["brsl"],
+      "ranges": [["0x3970", "0x3acc"], ["0x3ad0", "0x3c04"]],
+      "call_sites": [],
+      "returns": ["0x3984", "0x3b3c"],
+      "indirect": []
+    },
+    {
+      "entry": "0x3c08",
+      "sources": ["brsl"],
+      "ranges": [["0x3c08", "0x3c50"]],
+      "call_sites": [],
+      "returns": ["0x3c1c"],
+      "indirect": []
+    },
+    {
+      "entry": "0x3c50",
+      "sources": ["brsl"],
+      "ranges": [["0x3c50", "0x430c"]],
+      "call_sites": [],
+      "returns": ["0x3d2c"],
+      "indirect": []
+    },
+    {
+      "entry": "0x4310",
+      "sources": ["brsl"],
+      "ranges": [["0x4310", "0x43a8"], ["0x440c", "0x4484"], ["0x5960", "0x5984"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x43a8",
+      "sources": ["promoted"],
+      "ranges": [["0x43a8", "0x43b0"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x43b0",
+      "sources": ["promoted"],
+      "ranges": [["0x43b0", "0x440c"]],
+      "call_sites": [],
+      "returns": ["0x4408"],
+      "indirect": []
+    },
+    {
+      "entry": "0x4484",
+      "sources": ["promoted"],
+      "ranges": [["0x4484", "0x44ac"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": [
+        {
+          "site": "0x44a8",
+          "kind": "bi",
+          "resolution": "unresolved",
+          "reason": "$2 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0x4520",
+      "sources": ["extra"],
+      "ranges": [["0x4520", "0x4560"], ["0x5c38", "0x5cc4"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": [
+        {
+          "site": "0x5cc0",
+          "kind": "bi",
+          "resolution": "unresolved",
+          "reason": "$2 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0x45a0",
+      "sources": ["extra"],
+      "ranges": [["0x45a0", "0x45d0"], ["0x6078", "0x60ec"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x45d0",
+      "sources": ["extra"],
+      "ranges": [["0x45d0", "0x46d8"], ["0x69b0", "0x6a7c"], ["0x6b0c", "0x6b20"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x46d8",
+      "sources": ["extra"],
+      "ranges": [["0x46d8", "0x4734"], ["0x5e5c", "0x5ed8"], ["0x6b50", "0x6b7c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4734",
+      "sources": ["extra"],
+      "ranges": [["0x4734", "0x47e8"], ["0x5c2c", "0x5c38"], ["0x6c98", "0x6d0c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4814",
+      "sources": ["extra"],
+      "ranges": [["0x47e8", "0x488c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x488c",
+      "sources": ["extra"],
+      "ranges": [["0x488c", "0x48ec"], ["0x6ba8", "0x6c08"]],
+      "call_sites": [{"site": "0x48ac", "kind": "brsl", "target": "0x7ba0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x48ec",
+      "sources": ["extra"],
+      "ranges": [["0x48ec", "0x48f8"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x48f8",
+      "sources": ["promoted"],
+      "ranges": [["0x48f8", "0x4b34"], ["0x59fc", "0x5a2c"], ["0x6c68", "0x6c98"]],
+      "call_sites": [
+        {"site": "0x4988", "kind": "brsl", "target": "0x3c50", "link": 0},
+        {"site": "0x4a64", "kind": "brsl", "target": "0x7bd0", "link": 0},
+        {"site": "0x5a20", "kind": "brsl", "target": "0x7ba0", "link": 0}
+      ],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4b88",
+      "sources": ["extra"],
+      "ranges": [["0x4b88", "0x4c5c"], ["0x6d34", "0x6d68"]],
+      "call_sites": [{"site": "0x4c28", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4c5c",
+      "sources": ["extra"],
+      "ranges": [["0x4c5c", "0x4cd4"], ["0x5fd8", "0x603c"], ["0x6b20", "0x6b50"]],
+      "call_sites": [{"site": "0x6010", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4cd4",
+      "sources": ["promoted"],
+      "ranges": [["0x4cd4", "0x4d14"], ["0x5dd4", "0x5e5c"], ["0x6618", "0x6684"]],
+      "call_sites": [{"site": "0x6658", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4d14",
+      "sources": ["promoted"],
+      "ranges": [["0x4d14", "0x4e9c"], ["0x6388", "0x6498"], ["0x64b0", "0x64dc"]],
+      "call_sites": [{"site": "0x4e28", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4e9c",
+      "sources": ["extra"],
+      "ranges": [["0x4e9c", "0x4ef8"], ["0x6954", "0x69b0"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4ef8",
+      "sources": ["extra"],
+      "ranges": [["0x4ef8", "0x4f20"], ["0x5f24", "0x5fc8"], ["0x6510", "0x6618"], ["0x6d0c", "0x6d34"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x4f48",
+      "sources": ["extra"],
+      "ranges": [["0x4f48", "0x50f8"], ["0x5ed8", "0x5f24"], ["0x64dc", "0x6510"]],
+      "call_sites": [{"site": "0x50d4", "kind": "brsl", "target": "0x7198", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x50f8",
+      "sources": ["promoted"],
+      "ranges": [["0x50f8", "0x5110"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x513c",
+      "sources": ["extra"],
+      "ranges": [["0x4f20", "0x4f48"], ["0x5110", "0x51f4"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x51f4",
+      "sources": ["extra"],
+      "ranges": [["0x51f4", "0x5200"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5200",
+      "sources": ["extra"],
+      "ranges": [["0x5200", "0x520c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x520c",
+      "sources": ["extra"],
+      "ranges": [["0x520c", "0x5214"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5214",
+      "sources": ["promoted"],
+      "ranges": [["0x5214", "0x52b8"], ["0x5984", "0x59fc"], ["0x5fc8", "0x5fd8"]],
+      "call_sites": [{"site": "0x5274", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x52b8",
+      "sources": ["extra"],
+      "ranges": [["0x52b8", "0x52c0"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x52c0",
+      "sources": ["promoted"],
+      "ranges": [["0x52c0", "0x5324"], ["0x5b4c", "0x5c2c"], ["0x603c", "0x6078"]],
+      "call_sites": [{"site": "0x6060", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5324",
+      "sources": ["promoted"],
+      "ranges": [["0x5324", "0x5378"], ["0x5a2c", "0x5b4c"]],
+      "call_sites": [{"site": "0x5b18", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5378",
+      "sources": ["extra"],
+      "ranges": [["0x5378", "0x5388"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5388",
+      "sources": ["extra"],
+      "ranges": [["0x5388", "0x53b4"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x53b4",
+      "sources": ["promoted"],
+      "ranges": [["0x53b4", "0x5630"], ["0x67a4", "0x6954"], ["0x6a7c", "0x6b0c"]],
+      "call_sites": [
+        {"site": "0x559c", "kind": "brsl", "target": "0x7198", "link": 0},
+        {"site": "0x5614", "kind": "brsl", "target": "0x7198", "link": 0}
+      ],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5630",
+      "sources": ["extra"],
+      "ranges": [
+        ["0x4560", "0x45a0"],
+        ["0x5630", "0x578c"],
+        ["0x6700", "0x67a4"],
+        ["0x6e30", "0x6f10"],
+        ["0x6ff0", "0x7018"]
+      ],
+      "call_sites": [{"site": "0x6764", "kind": "brsl", "target": "0x7c00", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x578c",
+      "sources": ["extra"],
+      "ranges": [["0x578c", "0x57d4"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x57d4",
+      "sources": ["extra"],
+      "ranges": [["0x57d4", "0x5804"], ["0x60ec", "0x6240"], ["0x6b7c", "0x6ba8"], ["0x6dfc", "0x6e30"]],
+      "call_sites": [
+        {"site": "0x618c", "kind": "brsl", "target": "0x7bd0", "link": 0},
+        {"site": "0x6e24", "kind": "brsl", "target": "0x7ba0", "link": 0}
+      ],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5804",
+      "sources": ["promoted"],
+      "ranges": [["0x5804", "0x586c"], ["0x6c08", "0x6c68"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x586c",
+      "sources": ["extra"],
+      "ranges": [["0x586c", "0x5874"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5874",
+      "sources": ["extra"],
+      "ranges": [["0x5874", "0x5880"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5880",
+      "sources": ["extra"],
+      "ranges": [
+        ["0x5880", "0x58b8"],
+        ["0x6240", "0x6388"],
+        ["0x6498", "0x64b0"],
+        ["0x6d68", "0x6dfc"],
+        ["0x6f10", "0x6ff0"]
+      ],
+      "call_sites": [
+        {"site": "0x6d84", "kind": "brsl", "target": "0x7bd0", "link": 0},
+        {"site": "0x6dcc", "kind": "brsl", "target": "0x7bd0", "link": 0},
+        {"site": "0x6f94", "kind": "brsl", "target": "0x7ba0", "link": 0}
+      ],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x58e4",
+      "sources": ["extra"],
+      "ranges": [["0x4b34", "0x4b88"], ["0x58b8", "0x5924"], ["0x6684", "0x6700"]],
+      "call_sites": [{"site": "0x66e8", "kind": "brsl", "target": "0x7bd0", "link": 0}],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5924",
+      "sources": ["promoted"],
+      "ranges": [["0x5924", "0x593c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x593c",
+      "sources": ["extra"],
+      "ranges": [["0x593c", "0x5954"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5954",
+      "sources": ["extra"],
+      "ranges": [["0x5954", "0x5960"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5cd8",
+      "sources": ["extra"],
+      "ranges": [["0x5cd8", "0x5cf0"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5cf0",
+      "sources": ["promoted"],
+      "ranges": [["0x5cf0", "0x5d08"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5d08",
+      "sources": ["extra"],
+      "ranges": [["0x5d08", "0x5d88"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5d88",
+      "sources": ["extra"],
+      "ranges": [["0x5d88", "0x5da0"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x5da0",
+      "sources": ["extra"],
+      "ranges": [["0x5da0", "0x5dd4"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x7018",
+      "sources": ["brsl"],
+      "ranges": [["0x7018", "0x7198"]],
+      "call_sites": [
+        {"site": "0x709c", "kind": "brsl", "target": "0x3ad0", "link": 0},
+        {"site": "0x70cc", "kind": "brsl", "target": "0x4310", "link": 0},
+        {"site": "0x70e4", "kind": "brsl", "target": "0x3c08", "link": 0},
+        {"site": "0x7114", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x7134", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x7154", "kind": "brsl", "target": "0xa470", "link": 0},
+        {"site": "0x715c", "kind": "brsl", "target": "0x3c08", "link": 0}
+      ],
+      "returns": ["0x70c0"],
+      "indirect": []
+    },
+    {
+      "entry": "0x7198",
+      "sources": ["brsl"],
+      "ranges": [["0x7198", "0x7a44"]],
+      "call_sites": [],
+      "returns": ["0x7364"],
+      "indirect": []
+    },
+    {
+      "entry": "0x7a48",
+      "sources": ["brsl"],
+      "ranges": [["0x7a48", "0x7a74"]],
+      "call_sites": [],
+      "returns": ["0x7a54"],
+      "indirect": []
+    },
+    {
+      "entry": "0x7a74",
+      "sources": ["promoted"],
+      "ranges": [["0x7a74", "0x7af8"], ["0x7b5c", "0x7b9c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x7af8",
+      "sources": ["promoted"],
+      "ranges": [["0x7af8", "0x7b08"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": [{"site": "0x7b04", "kind": "bi", "resolution": "constant", "targets": ["0x7b08"]}]
+    },
+    {
+      "entry": "0x7b08",
+      "sources": ["constant"],
+      "ranges": [["0x7b08", "0x7b34"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": [{"site": "0x7b30", "kind": "binz", "resolution": "constant", "targets": ["0x7b34"]}]
+    },
+    {
+      "entry": "0x7b34",
+      "sources": ["constant"],
+      "ranges": [["0x7b34", "0x7b54"]],
+      "call_sites": [],
+      "returns": ["0x7b38"],
+      "indirect": []
+    },
+    {
+      "entry": "0x7b54",
+      "sources": ["promoted"],
+      "ranges": [["0x7b54", "0x7b5c"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0x7ba0",
+      "sources": ["brsl"],
+      "ranges": [["0x7ba0", "0x7bcc"]],
+      "call_sites": [],
+      "returns": ["0x7bc8"],
+      "indirect": []
+    },
+    {
+      "entry": "0x7bd0",
+      "sources": ["brsl"],
+      "ranges": [["0x7bd0", "0x7bfc"]],
+      "call_sites": [],
+      "returns": ["0x7bf8"],
+      "indirect": []
+    },
+    {
+      "entry": "0x7c00",
+      "sources": ["brsl"],
+      "ranges": [
+        ["0x7c00", "0x7df0"],
+        ["0x7e00", "0x8660"],
+        ["0x8680", "0x86f0"],
+        ["0x8700", "0x8770"],
+        ["0x8780", "0x8840"]
+      ],
+      "call_sites": [],
+      "returns": ["0x81dc"],
+      "indirect": []
+    },
+    {
+      "entry": "0x8840",
+      "sources": ["brsl"],
+      "ranges": [["0x8840", "0x8870"]],
+      "call_sites": [{"site": "0x8840", "kind": "brsl", "target": "0x30d8", "link": 0}],
+      "returns": [],
+      "indirect": [
+        {
+          "site": "0x886c",
+          "kind": "bisl",
+          "resolution": "unresolved",
+          "link": 0,
+          "reason": "$4 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0x8870",
+      "sources": ["brsl"],
+      "ranges": [["0x8870", "0x88b4"]],
+      "call_sites": [{"site": "0x887c", "kind": "brsl", "target": "0x88d8", "link": 0}],
+      "returns": ["0x88b0"],
+      "indirect": [
+        {
+          "site": "0x88a4",
+          "kind": "bi",
+          "resolution": "unresolved",
+          "reason": "$4 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0x88b8",
+      "sources": ["brsl"],
+      "ranges": [["0x88b8", "0x88d4"]],
+      "call_sites": [],
+      "returns": [],
+      "indirect": [
+        {
+          "site": "0x88d0",
+          "kind": "bi",
+          "resolution": "unresolved",
+          "reason": "$4 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0x88d8",
+      "sources": ["brsl"],
+      "ranges": [["0x88d8", "0x896c"]],
+      "call_sites": [],
+      "returns": ["0x8968"],
+      "indirect": []
+    },
+    {
+      "entry": "0x8970",
+      "sources": ["brsl"],
+      "ranges": [["0x8970", "0x8dc0"]],
+      "call_sites": [
+        {"site": "0x8cf0", "kind": "brsl", "target": "0x9108", "link": 0},
+        {"site": "0x8d00", "kind": "brsl", "target": "0x9220", "link": 0},
+        {"site": "0x8d80", "kind": "brsl", "target": "0xa5b0", "link": 0}
+      ],
+      "returns": ["0x8dbc"],
+      "indirect": []
+    },
+    {
+      "entry": "0x8dc0",
+      "sources": ["brsl"],
+      "ranges": [["0x8dc0", "0x8f14"]],
+      "call_sites": [{"site": "0x8e9c", "kind": "brsl", "target": "0x9a68", "link": 0}],
+      "returns": ["0x8f10"],
+      "indirect": []
+    },
+    {
+      "entry": "0x8f18",
+      "sources": ["extra"],
+      "ranges": [["0x8f18", "0x8f94"]],
+      "call_sites": [{"site": "0x8f30", "kind": "brsl", "target": "0x88d8", "link": 0}],
+      "returns": ["0x8f90"],
+      "indirect": [
+        {
+          "site": "0x8f64",
+          "kind": "bisl",
+          "resolution": "unresolved",
+          "link": 0,
+          "reason": "$6 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0x8f98",
+      "sources": ["brsl"],
+      "ranges": [["0x8f98", "0x9108"]],
+      "call_sites": [
+        {"site": "0x9064", "kind": "brsl", "target": "0x88d8", "link": 0},
+        {"site": "0x9090", "kind": "brsl", "target": "0x95d8", "link": 0},
+        {"site": "0x90e4", "kind": "brsl", "target": "0xa068", "link": 0}
+      ],
+      "returns": ["0x9104"],
+      "indirect": []
+    },
+    {
+      "entry": "0x9108",
+      "sources": ["brsl"],
+      "ranges": [["0x9108", "0x91f0"]],
+      "call_sites": [],
+      "returns": ["0x91ec"],
+      "indirect": []
+    },
+    {
+      "entry": "0x91f0",
+      "sources": ["extra"],
+      "ranges": [["0x91f0", "0x921c"]],
+      "call_sites": [],
+      "returns": ["0x9218"],
+      "indirect": []
+    },
+    {
+      "entry": "0x9220",
+      "sources": ["brsl"],
+      "ranges": [["0x9220", "0x93ec"]],
+      "call_sites": [{"site": "0x93cc", "kind": "brsl", "target": "0x9478", "link": 0}],
+      "returns": ["0x93e8"],
+      "indirect": []
+    },
+    {
+      "entry": "0x9478",
+      "sources": ["brsl"],
+      "ranges": [["0x9478", "0x9520"]],
+      "call_sites": [],
+      "returns": ["0x951c"],
+      "indirect": []
+    },
+    {
+      "entry": "0x9520",
+      "sources": ["brsl"],
+      "ranges": [["0x9520", "0x95d8"]],
+      "call_sites": [],
+      "returns": ["0x95d4"],
+      "indirect": []
+    },
+    {
+      "entry": "0x95d8",
+      "sources": ["brsl"],
+      "ranges": [["0x95d8", "0x9a64"]],
+      "call_sites": [],
+      "returns": ["0x9a60"],
+      "indirect": [
+        {
+          "site": "0x962c",
+          "kind": "bisl",
+          "resolution": "unresolved",
+          "link": 0,
+          "reason": "$6 is not a recoverable constant"
+        },
+        {
+          "site": "0x9a0c",
+          "kind": "bisl",
+          "resolution": "unresolved",
+          "link": 0,
+          "reason": "$80 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0x9a68",
+      "sources": ["brsl"],
+      "ranges": [["0x9a68", "0xa068"]],
+      "call_sites": [{"site": "0xa054", "kind": "brsl", "target": "0xa158", "link": 0}],
+      "returns": ["0xa064"],
+      "indirect": []
+    },
+    {
+      "entry": "0xa068",
+      "sources": ["brsl"],
+      "ranges": [["0xa068", "0xa0e0"]],
+      "call_sites": [],
+      "returns": ["0xa0dc"],
+      "indirect": []
+    },
+    {
+      "entry": "0xa158",
+      "sources": ["brsl"],
+      "ranges": [["0xa158", "0xa2c0"]],
+      "call_sites": [
+        {"site": "0xa1d4", "kind": "brsl", "target": "0xa5b0", "link": 0},
+        {"site": "0xa258", "kind": "brsl", "target": "0xa5b0", "link": 0}
+      ],
+      "returns": ["0xa2bc"],
+      "indirect": [
+        {
+          "site": "0xa264",
+          "kind": "bisl",
+          "resolution": "unresolved",
+          "link": 0,
+          "reason": "$82 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0xa2c0",
+      "sources": ["brsl"],
+      "ranges": [["0xa2c0", "0xa37c"]],
+      "call_sites": [],
+      "returns": ["0xa378"],
+      "indirect": []
+    },
+    {
+      "entry": "0xa380",
+      "sources": ["brsl"],
+      "ranges": [["0xa380", "0xa43c"]],
+      "call_sites": [],
+      "returns": ["0xa438"],
+      "indirect": []
+    },
+    {
+      "entry": "0xa440",
+      "sources": ["brsl"],
+      "ranges": [["0xa440", "0xa468"]],
+      "call_sites": [
+        {"site": "0xa45c", "kind": "brsl", "target": "0xa4f0", "link": 0},
+        {"site": "0xa464", "kind": "brsl", "target": "0x3040", "link": 0}
+      ],
+      "returns": [],
+      "indirect": []
+    },
+    {
+      "entry": "0xa470",
+      "sources": ["brsl"],
+      "ranges": [["0xa470", "0xa4e4"]],
+      "call_sites": [],
+      "returns": ["0xa4d8", "0xa4e0"],
+      "indirect": []
+    },
+    {
+      "entry": "0xa4f0",
+      "sources": ["brsl"],
+      "ranges": [["0xa4f0", "0xa568"]],
+      "call_sites": [],
+      "returns": ["0xa564"],
+      "indirect": [
+        {
+          "site": "0xa53c",
+          "kind": "bisl",
+          "resolution": "unresolved",
+          "link": 0,
+          "reason": "$5 is not a recoverable constant"
+        }
+      ]
+    },
+    {
+      "entry": "0xa5b0",
+      "sources": ["brsl"],
+      "ranges": [["0xa5b0", "0xa5fc"]],
+      "call_sites": [],
+      "returns": ["0xa5f8"],
+      "indirect": []
+    },
+    {
+      "entry": "0xa600",
+      "sources": ["brsl"],
+      "ranges": [["0xa600", "0xa630"]],
+      "call_sites": [],
+      "returns": ["0xa62c"],
+      "indirect": []
+    }
+  ],
+  "dispatch_seeds": [
+    {"ls": "0x3010", "sources": ["brsl"]},
+    {"ls": "0x3040", "sources": ["brsl"]},
+    {"ls": "0x3048", "sources": ["return"]},
+    {"ls": "0x3050", "sources": ["entry"]},
+    {"ls": "0x30bc", "sources": ["return"]},
+    {"ls": "0x30d0", "sources": ["return"]},
+    {"ls": "0x30d8", "sources": ["brsl"]},
+    {"ls": "0x3168", "sources": ["return"]},
+    {"ls": "0x3178", "sources": ["return"]},
+    {"ls": "0x3218", "sources": ["return"]},
+    {"ls": "0x3258", "sources": ["return"]},
+    {"ls": "0x3274", "sources": ["return"]},
+    {"ls": "0x3280", "sources": ["return"]},
+    {"ls": "0x3294", "sources": ["return"]},
+    {"ls": "0x32e0", "sources": ["return"]},
+    {"ls": "0x3338", "sources": ["return"]},
+    {"ls": "0x3358", "sources": ["return"]},
+    {"ls": "0x3370", "sources": ["return"]},
+    {"ls": "0x3388", "sources": ["return"]},
+    {"ls": "0x33a8", "sources": ["return"]},
+    {"ls": "0x33c8", "sources": ["return"]},
+    {"ls": "0x33e8", "sources": ["return"]},
+    {"ls": "0x34c0", "sources": ["return"]},
+    {"ls": "0x35c8", "sources": ["brsl"]},
+    {"ls": "0x36d0", "sources": ["return"]},
+    {"ls": "0x3710", "sources": ["promoted"]},
+    {"ls": "0x3748", "sources": ["constant"]},
+    {"ls": "0x3770", "sources": ["return"]},
+    {"ls": "0x378c", "sources": ["constant"]},
+    {"ls": "0x37e0", "sources": ["promoted"]},
+    {"ls": "0x37f0", "sources": ["return"]},
+    {"ls": "0x3830", "sources": ["promoted"]},
+    {"ls": "0x3888", "sources": ["return"]},
+    {"ls": "0x3890", "sources": ["promoted", "return"]},
+    {"ls": "0x38f4", "sources": ["return"]},
+    {"ls": "0x3904", "sources": ["constant"]},
+    {"ls": "0x3920", "sources": ["constant"]},
+    {"ls": "0x3950", "sources": ["return"]},
+    {"ls": "0x3968", "sources": ["return"]},
+    {"ls": "0x3ad0", "sources": ["brsl"]},
+    {"ls": "0x3c08", "sources": ["brsl"]},
+    {"ls": "0x3c50", "sources": ["brsl"]},
+    {"ls": "0x4310", "sources": ["brsl"]},
+    {"ls": "0x43a8", "sources": ["promoted"]},
+    {"ls": "0x43b0", "sources": ["promoted"]},
+    {"ls": "0x4484", "sources": ["promoted"]},
+    {"ls": "0x4520", "sources": ["extra"]},
+    {"ls": "0x45a0", "sources": ["extra"]},
+    {"ls": "0x45d0", "sources": ["extra"]},
+    {"ls": "0x46d8", "sources": ["extra"]},
+    {"ls": "0x4734", "sources": ["extra"]},
+    {"ls": "0x4814", "sources": ["extra"]},
+    {"ls": "0x488c", "sources": ["extra"]},
+    {"ls": "0x48b0", "sources": ["return"]},
+    {"ls": "0x48ec", "sources": ["extra"]},
+    {"ls": "0x48f8", "sources": ["promoted"]},
+    {"ls": "0x498c", "sources": ["return"]},
+    {"ls": "0x4a68", "sources": ["return"]},
+    {"ls": "0x4b88", "sources": ["extra"]},
+    {"ls": "0x4c2c", "sources": ["return"]},
+    {"ls": "0x4c5c", "sources": ["extra"]},
+    {"ls": "0x4cd4", "sources": ["promoted"]},
+    {"ls": "0x4d14", "sources": ["promoted"]},
+    {"ls": "0x4e2c", "sources": ["return"]},
+    {"ls": "0x4e9c", "sources": ["extra"]},
+    {"ls": "0x4ef8", "sources": ["extra"]},
+    {"ls": "0x4f48", "sources": ["extra"]},
+    {"ls": "0x50d8", "sources": ["return"]},
+    {"ls": "0x50f8", "sources": ["promoted"]},
+    {"ls": "0x513c", "sources": ["extra"]},
+    {"ls": "0x51f4", "sources": ["extra"]},
+    {"ls": "0x5200", "sources": ["extra"]},
+    {"ls": "0x520c", "sources": ["extra"]},
+    {"ls": "0x5214", "sources": ["promoted"]},
+    {"ls": "0x5278", "sources": ["return"]},
+    {"ls": "0x52b8", "sources": ["extra"]},
+    {"ls": "0x52c0", "sources": ["promoted"]},
+    {"ls": "0x5324", "sources": ["promoted"]},
+    {"ls": "0x5378", "sources": ["extra"]},
+    {"ls": "0x5388", "sources": ["extra"]},
+    {"ls": "0x53b4", "sources": ["promoted"]},
+    {"ls": "0x55a0", "sources": ["return"]},
+    {"ls": "0x5618", "sources": ["return"]},
+    {"ls": "0x5630", "sources": ["extra"]},
+    {"ls": "0x578c", "sources": ["extra"]},
+    {"ls": "0x57d4", "sources": ["extra"]},
+    {"ls": "0x5804", "sources": ["promoted"]},
+    {"ls": "0x586c", "sources": ["extra"]},
+    {"ls": "0x5874", "sources": ["extra"]},
+    {"ls": "0x5880", "sources": ["extra"]},
+    {"ls": "0x58e4", "sources": ["extra"]},
+    {"ls": "0x5924", "sources": ["promoted"]},
+    {"ls": "0x593c", "sources": ["extra"]},
+    {"ls": "0x5954", "sources": ["extra"]},
+    {"ls": "0x5a24", "sources": ["return"]},
+    {"ls": "0x5b1c", "sources": ["return"]},
+    {"ls": "0x5cd8", "sources": ["extra"]},
+    {"ls": "0x5cf0", "sources": ["promoted"]},
+    {"ls": "0x5d08", "sources": ["extra"]},
+    {"ls": "0x5d88", "sources": ["extra"]},
+    {"ls": "0x5da0", "sources": ["extra"]},
+    {"ls": "0x6014", "sources": ["return"]},
+    {"ls": "0x6064", "sources": ["return"]},
+    {"ls": "0x6190", "sources": ["return"]},
+    {"ls": "0x665c", "sources": ["return"]},
+    {"ls": "0x66ec", "sources": ["return"]},
+    {"ls": "0x6768", "sources": ["return"]},
+    {"ls": "0x6d88", "sources": ["return"]},
+    {"ls": "0x6dd0", "sources": ["return"]},
+    {"ls": "0x6e28", "sources": ["return"]},
+    {"ls": "0x6f98", "sources": ["return"]},
+    {"ls": "0x7018", "sources": ["brsl"]},
+    {"ls": "0x70a0", "sources": ["return"]},
+    {"ls": "0x70d0", "sources": ["return"]},
+    {"ls": "0x70e8", "sources": ["return"]},
+    {"ls": "0x7118", "sources": ["return"]},
+    {"ls": "0x7138", "sources": ["return"]},
+    {"ls": "0x7158", "sources": ["return"]},
+    {"ls": "0x7160", "sources": ["return"]},
+    {"ls": "0x7198", "sources": ["brsl"]},
+    {"ls": "0x7a48", "sources": ["brsl"]},
+    {"ls": "0x7a74", "sources": ["promoted"]},
+    {"ls": "0x7af8", "sources": ["promoted"]},
+    {"ls": "0x7b08", "sources": ["constant"]},
+    {"ls": "0x7b34", "sources": ["constant"]},
+    {"ls": "0x7b54", "sources": ["promoted"]},
+    {"ls": "0x7ba0", "sources": ["brsl"]},
+    {"ls": "0x7bd0", "sources": ["brsl"]},
+    {"ls": "0x7c00", "sources": ["brsl"]},
+    {"ls": "0x8840", "sources": ["brsl"]},
+    {"ls": "0x8844", "sources": ["return"]},
+    {"ls": "0x8870", "sources": ["brsl", "return"]},
+    {"ls": "0x8880", "sources": ["return"]},
+    {"ls": "0x88b8", "sources": ["brsl"]},
+    {"ls": "0x88d8", "sources": ["brsl"]},
+    {"ls": "0x8970", "sources": ["brsl"]},
+    {"ls": "0x8cf4", "sources": ["return"]},
+    {"ls": "0x8d04", "sources": ["return"]},
+    {"ls": "0x8d84", "sources": ["return"]},
+    {"ls": "0x8dc0", "sources": ["brsl"]},
+    {"ls": "0x8ea0", "sources": ["return"]},
+    {"ls": "0x8f18", "sources": ["extra"]},
+    {"ls": "0x8f34", "sources": ["return"]},
+    {"ls": "0x8f68", "sources": ["return"]},
+    {"ls": "0x8f98", "sources": ["brsl"]},
+    {"ls": "0x9068", "sources": ["return"]},
+    {"ls": "0x9094", "sources": ["return"]},
+    {"ls": "0x90e8", "sources": ["return"]},
+    {"ls": "0x9108", "sources": ["brsl"]},
+    {"ls": "0x91f0", "sources": ["extra"]},
+    {"ls": "0x9220", "sources": ["brsl"]},
+    {"ls": "0x93d0", "sources": ["return"]},
+    {"ls": "0x9478", "sources": ["brsl"]},
+    {"ls": "0x9520", "sources": ["brsl"]},
+    {"ls": "0x95d8", "sources": ["brsl"]},
+    {"ls": "0x9630", "sources": ["return"]},
+    {"ls": "0x9a10", "sources": ["return"]},
+    {"ls": "0x9a68", "sources": ["brsl"]},
+    {"ls": "0xa058", "sources": ["return"]},
+    {"ls": "0xa068", "sources": ["brsl"]},
+    {"ls": "0xa158", "sources": ["brsl"]},
+    {"ls": "0xa1d8", "sources": ["return"]},
+    {"ls": "0xa25c", "sources": ["return"]},
+    {"ls": "0xa268", "sources": ["return"]},
+    {"ls": "0xa2c0", "sources": ["brsl"]},
+    {"ls": "0xa380", "sources": ["brsl"]},
+    {"ls": "0xa440", "sources": ["brsl"]},
+    {"ls": "0xa460", "sources": ["return"]},
+    {"ls": "0xa470", "sources": ["brsl"]},
+    {"ls": "0xa4f0", "sources": ["brsl"]},
+    {"ls": "0xa540", "sources": ["return"]},
+    {"ls": "0xa5b0", "sources": ["brsl"]},
+    {"ls": "0xa600", "sources": ["brsl"]}
+  ],
+  "jump_tables": [],
+  "constant_targets": [
+    {"site": "0x3744", "target": "0x3748", "image": "self", "use": "branch"},
+    {"site": "0x3788", "target": "0x378c", "image": "self", "use": "branch"},
+    {"site": "0x3900", "target": "0x3904", "image": "self", "use": "branch"},
+    {"site": "0x391c", "target": "0x3920", "image": "self", "use": "branch"},
+    {"site": "0x7b04", "target": "0x7b08", "image": "self", "use": "branch"},
+    {"site": "0x7b30", "target": "0x7b34", "image": "self", "use": "branch"}
+  ],
+  "unresolved_indirect": [
+    {"site": "0x44a8", "kind": "bi", "reason": "$2 is not a recoverable constant"},
+    {"site": "0x5cc0", "kind": "bi", "reason": "$2 is not a recoverable constant"},
+    {"site": "0x886c", "kind": "bisl", "reason": "$4 is not a recoverable constant"},
+    {"site": "0x88a4", "kind": "bi", "reason": "$4 is not a recoverable constant"},
+    {"site": "0x88d0", "kind": "bi", "reason": "$4 is not a recoverable constant"},
+    {"site": "0x8f64", "kind": "bisl", "reason": "$6 is not a recoverable constant"},
+    {"site": "0x962c", "kind": "bisl", "reason": "$6 is not a recoverable constant"},
+    {"site": "0x9a0c", "kind": "bisl", "reason": "$80 is not a recoverable constant"},
+    {"site": "0xa264", "kind": "bisl", "reason": "$82 is not a recoverable constant"},
+    {"site": "0xa53c", "kind": "bisl", "reason": "$5 is not a recoverable constant"}
+  ]
+}

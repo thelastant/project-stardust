@@ -1,0 +1,419 @@
+include_guard(GLOBAL)
+
+# Vulkan-Headers, volk and VulkanMemoryAllocator come from pinned submodules, so the headers do not
+# depend on the SDK installed on a machine. volk is built from its single C file with the project's
+# default flags (no -Werror); SYSTEM keeps the third-party headers out of our warnings. Nothing is
+# fetched or generated at configure time.
+function(sshd_render_add_libraries)
+  foreach(dir Vulkan-Headers volk VulkanMemoryAllocator)
+    if(NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/${dir}/LICENSE.md AND
+       NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/${dir}/LICENSE.txt AND
+       NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/${dir}/LICENSE)
+      message(FATAL_ERROR
+        "SSHD: externals/${dir} is missing or empty. Run: git submodule update --init")
+    endif()
+  endforeach()
+
+  add_library(volk STATIC ${CMAKE_SOURCE_DIR}/externals/volk/volk.c)
+  target_include_directories(volk SYSTEM PUBLIC
+    ${CMAKE_SOURCE_DIR}/externals/volk
+    ${CMAKE_SOURCE_DIR}/externals/Vulkan-Headers/include)
+  # No link against the Vulkan loader import library: volk loads it at run time.
+  target_compile_definitions(volk PUBLIC VK_NO_PROTOTYPES)
+  target_compile_options(volk PRIVATE ${SSHD_ARCH_FLAGS})
+endfunction()
+
+# The run-time shader compiler is the SDK's static shaderc, located through $VULKAN_SDK. The
+# debug variant (shaderc_combinedd.lib) is built against the debug CRT (/MDd) and must be used
+# with Debug only; every other configuration uses the release library (/MD).
+#
+# On macOS the SDK ships one libshaderc_combined.a for every configuration. $VULKAN_SDK (the SDK's
+# macOS directory) is tried first, then /usr/local, where the SDK's system-global install puts the
+# same files; the variable is often not exported in the shell that runs CMake.
+function(sshd_render_add_shaderc)
+  if(APPLE)
+    set(shaderc_prefix "")
+    set(shaderc_label "")
+    if(DEFINED ENV{VULKAN_SDK} AND NOT "$ENV{VULKAN_SDK}" STREQUAL "")
+      file(TO_CMAKE_PATH "$ENV{VULKAN_SDK}" sdk)
+      if(EXISTS "${sdk}/lib/libshaderc_combined.a" AND EXISTS "${sdk}/include/shaderc/shaderc.hpp")
+        set(shaderc_prefix "${sdk}")
+        set(shaderc_label "$VULKAN_SDK")
+      endif()
+    endif()
+    if(shaderc_prefix STREQUAL "" AND
+       EXISTS "/usr/local/lib/libshaderc_combined.a" AND
+       EXISTS "/usr/local/include/shaderc/shaderc.hpp")
+      set(shaderc_prefix "/usr/local")
+      set(shaderc_label "/usr/local")
+    endif()
+    if(shaderc_prefix STREQUAL "")
+      message(FATAL_ERROR
+        "SSHD: shaderc not found. Install the LunarG Vulkan SDK and export VULKAN_SDK (the SDK's "
+        "macOS directory) or install its system-global component; expected "
+        "lib/libshaderc_combined.a and include/shaderc/shaderc.hpp")
+    endif()
+
+    add_library(shaderc_combined STATIC IMPORTED GLOBAL)
+    set_target_properties(shaderc_combined PROPERTIES
+      IMPORTED_LOCATION "${shaderc_prefix}/lib/libshaderc_combined.a")
+    target_include_directories(shaderc_combined SYSTEM INTERFACE "${shaderc_prefix}/include")
+    message(STATUS "SSHD: shaderc: libshaderc_combined.a from ${shaderc_label}/lib")
+    return()
+  endif()
+
+  if(NOT DEFINED ENV{VULKAN_SDK} OR "$ENV{VULKAN_SDK}" STREQUAL "")
+    message(FATAL_ERROR
+      "SSHD: VULKAN_SDK is not set; expected $VULKAN_SDK/Lib/shaderc_combined.lib "
+      "and $VULKAN_SDK/Lib/shaderc_combinedd.lib")
+  endif()
+  file(TO_CMAKE_PATH "$ENV{VULKAN_SDK}" sdk)
+  set(release_lib "${sdk}/Lib/shaderc_combined.lib")
+  set(debug_lib "${sdk}/Lib/shaderc_combinedd.lib")
+  foreach(lib ${release_lib} ${debug_lib})
+    if(NOT EXISTS "${lib}")
+      message(FATAL_ERROR "SSHD: missing ${lib} (expected under $VULKAN_SDK/Lib)")
+    endif()
+  endforeach()
+  if(NOT EXISTS "${sdk}/Include/shaderc/shaderc.hpp")
+    message(FATAL_ERROR "SSHD: missing $VULKAN_SDK/Include/shaderc/shaderc.hpp")
+  endif()
+
+  add_library(shaderc_combined STATIC IMPORTED GLOBAL)
+  set_target_properties(shaderc_combined PROPERTIES
+    IMPORTED_LOCATION "${release_lib}"
+    IMPORTED_LOCATION_DEBUG "${debug_lib}")
+  target_include_directories(shaderc_combined SYSTEM INTERFACE "${sdk}/Include")
+  message(STATUS "SSHD: shaderc: shaderc_combined.lib / shaderc_combinedd.lib from $VULKAN_SDK/Lib")
+endfunction()
+
+# NVIDIA Streamline (DLSS) is optional. SSHD_ENABLE_DLSS: AUTO uses the SDK under SSHD_STREAMLINE_DIR when
+# present, ON requires it, OFF compiles the stub. The SDK is never linked: sl.interposer.dll is loaded at run
+# time (its import library exports the same Vulkan names as volk's global function pointers). Sets
+# SSHD_STREAMLINE_ENABLED and SSHD_STREAMLINE_RESOLVED_DIR in the caller's scope.
+function(sshd_render_find_streamline)
+  include("${CMAKE_SOURCE_DIR}/cmake/streamline.cmake")
+  set(SSHD_ENABLE_DLSS "AUTO" CACHE STRING "Use the NVIDIA Streamline SDK for DLAA (AUTO, ON or OFF)")
+  set_property(CACHE SSHD_ENABLE_DLSS PROPERTY STRINGS AUTO ON OFF)
+  set(SSHD_STREAMLINE_DIR "${CMAKE_SOURCE_DIR}/externals/Streamline" CACHE PATH
+    "Root of the unpacked NVIDIA Streamline SDK")
+
+  string(TOUPPER "${SSHD_ENABLE_DLSS}" mode)
+  if(NOT mode MATCHES "^(AUTO|ON|OFF)$")
+    message(FATAL_ERROR "SSHD: SSHD_ENABLE_DLSS must be AUTO, ON or OFF (got '${SSHD_ENABLE_DLSS}')")
+  endif()
+
+  set(enabled FALSE)
+  if(mode STREQUAL "OFF")
+    message(STATUS "SSHD: Streamline: off (SSHD_ENABLE_DLSS=OFF)")
+  elseif(NOT WIN32)
+    # The SDK ships Windows binaries only.
+    if(mode STREQUAL "ON")
+      message(FATAL_ERROR "SSHD: Streamline: SSHD_ENABLE_DLSS=ON needs a Windows build")
+    endif()
+    message(STATUS "SSHD: Streamline: off (Windows only)")
+  else()
+    set(sdk "${SSHD_STREAMLINE_DIR}")
+    set(found TRUE)
+    foreach(file include/sl.h bin/x64/sl.interposer.dll bin/x64/sl.common.dll bin/x64/sl.dlss.dll
+                 bin/x64/nvngx_dlss.dll)
+      if(NOT EXISTS "${sdk}/${file}")
+        set(found FALSE)
+      endif()
+    endforeach()
+    if(found)
+      set(enabled TRUE)
+      set(marker "${sdk}/.verified-sha256")
+      set(note ", not verified by tools/fetch-streamline.ps1")
+      if(EXISTS "${marker}")
+        file(READ "${marker}" marker_hash)
+        string(STRIP "${marker_hash}" marker_hash)
+        if(marker_hash STREQUAL "${SSHD_STREAMLINE_SHA256}")
+          set(note "")
+        endif()
+        # Re-fetching another pin must re-run the configure step. A missing file would make Ninja re-run it on
+        # every build, so only an existing marker is a dependency.
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${marker}")
+      endif()
+      message(STATUS "SSHD: Streamline: ${sdk} (v${SSHD_STREAMLINE_VERSION})${note}")
+    else()
+      set(hint "${sdk}/include/sl.h); DLAA disabled. Run: pwsh -NoProfile -File tools/fetch-streamline.ps1")
+      if(mode STREQUAL "ON")
+        message(FATAL_ERROR "SSHD: Streamline: not found (${hint}")
+      endif()
+      message(STATUS "SSHD: Streamline: not found (${hint}")
+    endif()
+  endif()
+
+  set(SSHD_STREAMLINE_ENABLED ${enabled} PARENT_SCOPE)
+  set(SSHD_STREAMLINE_RESOLVED_DIR "${SSHD_STREAMLINE_DIR}" PARENT_SCOPE)
+endfunction()
+
+# Copies the Streamline runtime next to the executables, with the licence texts the redistribution terms ask
+# for. The DLLs are needed from the first use of the loader on, so every test target depends on the copy.
+function(sshd_render_add_streamline_runtime)
+  set(sdk "${SSHD_STREAMLINE_RESOLVED_DIR}")
+  set(bin_dir "${CMAKE_BINARY_DIR}/bin")
+  set(licence_dir "${bin_dir}/licenses/streamline")
+  set(copied "")
+  # NvLowLatencyVk.dll (Reflex) is left out: its licence does not list it as distributable. On Vulkan Streamline
+  # uses VK_NV_low_latency2 instead; sl.common's error about the missing DLL is logged at debug level.
+  foreach(name sl.interposer.dll sl.common.dll sl.dlss.dll nvngx_dlss.dll)
+    add_custom_command(OUTPUT "${bin_dir}/${name}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${bin_dir}"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${sdk}/bin/x64/${name}" "${bin_dir}/${name}"
+      DEPENDS "${sdk}/bin/x64/${name}"
+      VERBATIM)
+    list(APPEND copied "${bin_dir}/${name}")
+  endforeach()
+  # Frame generation is optional: a missing DLL only makes it unavailable at run time, DLAA is unaffected.
+  set(missing_frame_gen "")
+  foreach(name sl.dlss_g.dll sl.reflex.dll sl.pcl.dll nvngx_dlssg.dll)
+    if(NOT EXISTS "${sdk}/bin/x64/${name}")
+      list(APPEND missing_frame_gen "${name}")
+      continue()
+    endif()
+    add_custom_command(OUTPUT "${bin_dir}/${name}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${bin_dir}"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${sdk}/bin/x64/${name}" "${bin_dir}/${name}"
+      DEPENDS "${sdk}/bin/x64/${name}"
+      VERBATIM)
+    list(APPEND copied "${bin_dir}/${name}")
+  endforeach()
+  if(missing_frame_gen)
+    list(JOIN missing_frame_gen ", " missing_text)
+    message(STATUS "SSHD: Streamline: frame generation DLLs missing (${missing_text})")
+  endif()
+  foreach(pair "license.txt|LICENSE.txt" "bin/x64/nvngx_dlss.license.txt|nvngx_dlss.license.txt"
+               "3rd-party-licenses.md|3rd-party-licenses.md")
+    string(REPLACE "|" ";" pair "${pair}")
+    list(GET pair 0 from)
+    list(GET pair 1 to)
+    add_custom_command(OUTPUT "${licence_dir}/${to}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${licence_dir}"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${sdk}/${from}" "${licence_dir}/${to}"
+      DEPENDS "${sdk}/${from}"
+      VERBATIM)
+    list(APPEND copied "${licence_dir}/${to}")
+  endforeach()
+  add_custom_target(sshd_streamline_runtime ALL DEPENDS ${copied})
+endfunction()
+
+# The renderer library. sshd_runtime_core stays GPU-free: only targets that link sshd_render see
+# Vulkan. Call after sshd_runtime_add_core() and enable_testing().
+function(sshd_render_add)
+  sshd_render_add_libraries()
+  sshd_render_add_shaderc()
+  sshd_render_find_streamline()
+
+  add_library(sshd_render STATIC
+    runtime/src/render/dlaa_pass.cpp
+    runtime/src/render/fg_motion.cpp
+    runtime/src/render/fp_translator.cpp
+    runtime/src/render/frame_dump.cpp
+    runtime/src/render/frame_gen_runtime.cpp
+    runtime/src/render/image_pool.cpp
+    runtime/src/render/object_motion_history.cpp
+    runtime/src/render/shader_compiler.cpp
+    runtime/src/render/vertex_convert.cpp
+    runtime/src/render/vk_context.cpp
+    runtime/src/render/vk_pipelines.cpp
+    runtime/src/render/vk_renderer.cpp
+    runtime/src/render/vk_textures.cpp
+    runtime/src/render/vk_window.cpp
+    runtime/src/render/vp_translator.cpp)
+  if(WIN32)
+    target_sources(sshd_render PRIVATE
+      runtime/src/render/dx12_context.cpp
+      runtime/src/render/vk_window_win32.cpp)
+    target_link_libraries(sshd_render PRIVATE d3d12 dxgi dxguid)
+  elseif(APPLE)
+    target_sources(sshd_render PRIVATE runtime/src/render/vk_window_macos.mm)
+  endif()
+  target_compile_options(sshd_render PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_include_directories(sshd_render PUBLIC ${CMAKE_SOURCE_DIR}/runtime/src)
+  target_include_directories(sshd_render SYSTEM PUBLIC
+    ${CMAKE_SOURCE_DIR}/externals/VulkanMemoryAllocator/include)
+  # The allocator resolves its Vulkan entry points through volk's vkGet*ProcAddr; it must see the
+  # same settings in every translation unit that includes its header.
+  target_compile_definitions(sshd_render PUBLIC
+    VMA_STATIC_VULKAN_FUNCTIONS=0
+    VMA_DYNAMIC_VULKAN_FUNCTIONS=1
+    VMA_VULKAN_VERSION=1003000)
+  target_link_libraries(sshd_render PUBLIC volk sshd_runtime_core)
+  target_link_libraries(sshd_render PRIVATE shaderc_combined)
+  if(WIN32)
+    # ImmAssociateContext turns the IME off for the game window.
+    target_link_libraries(sshd_render PRIVATE imm32)
+  elseif(APPLE)
+    # AppKit windows; QuartzCore for the CAMetalLayer that MoltenVK renders into.
+    target_link_libraries(sshd_render PRIVATE "-framework Cocoa" "-framework QuartzCore")
+  endif()
+  if(APPLE AND DEFINED ENV{VULKAN_SDK} AND NOT "$ENV{VULKAN_SDK}" STREQUAL "")
+    # The loader search in vk_context.cpp falls back to the SDK's copy when /usr/local/lib has none.
+    file(TO_CMAKE_PATH "$ENV{VULKAN_SDK}" sdk_root)
+    target_compile_definitions(sshd_render PRIVATE SSHD_VULKAN_SDK_LIB_DIR="${sdk_root}/lib")
+  endif()
+  # PRIVATE: libpng types stay inside frame_dump.cpp.
+  target_link_libraries(sshd_render PRIVATE png_static)
+  if(SSHD_STREAMLINE_ENABLED)
+    target_sources(sshd_render PRIVATE runtime/src/render/streamline.cpp)
+    target_include_directories(sshd_render SYSTEM PRIVATE "${SSHD_STREAMLINE_RESOLVED_DIR}/include")
+    target_compile_definitions(sshd_render PUBLIC SSHD_HAS_STREAMLINE=1)
+  else()
+    target_sources(sshd_render PRIVATE runtime/src/render/streamline_off.cpp)
+    target_compile_definitions(sshd_render PUBLIC SSHD_HAS_STREAMLINE=0)
+  endif()
+
+  add_executable(sshd_render_tests runtime/tests/render_test.cpp)
+  target_compile_options(sshd_render_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_render_tests PRIVATE sshd_render)
+
+  add_test(NAME render_core COMMAND sshd_render_tests)
+  set_tests_properties(render_core PROPERTIES
+    PASS_REGULAR_EXPRESSION
+      "render tests: [0-9]+ passed, 0 failed|render tests: skipped: no Vulkan device")
+
+  if(APPLE)
+    # Opens a window, so it needs a logged-in session and must not run next to other window tests. The
+    # test exits 77 (skipped) when the window server is not reachable.
+    add_executable(sshd_render_window_tests runtime/tests/render_window_test.cpp)
+    target_compile_options(sshd_render_window_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+    target_link_libraries(sshd_render_window_tests PRIVATE sshd_render)
+    add_test(NAME render_window COMMAND sshd_render_window_tests)
+    set_tests_properties(render_window PROPERTIES
+      PASS_REGULAR_EXPRESSION "render window tests: [0-9]+ passed, 0 failed"
+      SKIP_RETURN_CODE 77
+      RUN_SERIAL TRUE)
+  endif()
+
+  # Needs no GPU. The dumped programs come from generated/rsx; the test skips them when absent.
+  add_executable(sshd_vp_translator_tests runtime/tests/vp_translator_test.cpp)
+  target_compile_options(sshd_vp_translator_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_compile_definitions(sshd_vp_translator_tests PRIVATE
+    SSHD_RSX_DUMP_DIR="${CMAKE_SOURCE_DIR}/generated/rsx")
+  target_link_libraries(sshd_vp_translator_tests PRIVATE sshd_render)
+  add_test(NAME vp_translator COMMAND sshd_vp_translator_tests)
+  set_tests_properties(vp_translator PROPERTIES
+    PASS_REGULAR_EXPRESSION "vp translator tests: [0-9]+ passed, 0 failed")
+
+  add_executable(sshd_fp_translator_tests runtime/tests/fp_translator_test.cpp)
+  target_compile_options(sshd_fp_translator_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_compile_definitions(sshd_fp_translator_tests PRIVATE
+    SSHD_RSX_DUMP_DIR="${CMAKE_SOURCE_DIR}/generated/rsx")
+  target_link_libraries(sshd_fp_translator_tests PRIVATE sshd_render)
+  add_test(NAME fp_translator COMMAND sshd_fp_translator_tests)
+  set_tests_properties(fp_translator PROPERTIES
+    PASS_REGULAR_EXPRESSION "fp translator tests: [0-9]+ passed, 0 failed")
+  add_test(NAME fp_translator_dumps COMMAND sshd_fp_translator_tests --dumps)
+  set_tests_properties(fp_translator_dumps PROPERTIES
+    LABELS dumps
+    PASS_REGULAR_EXPRESSION "fp translator dump tests: [0-9]+ passed, 0 failed")
+
+  # Header-only maths; needs no GPU.
+  add_executable(sshd_frame_gen_tests runtime/tests/frame_gen_test.cpp)
+  target_compile_options(sshd_frame_gen_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_frame_gen_tests PRIVATE sshd_render)
+  add_test(NAME frame_gen COMMAND sshd_frame_gen_tests)
+  set_tests_properties(frame_gen PROPERTIES
+    PASS_REGULAR_EXPRESSION "frame gen tests: [0-9]+ passed, 0 failed")
+
+  # Header-only candidate predicate, signatures and matcher; needs no GPU.
+  add_executable(sshd_object_motion_tests runtime/tests/object_motion_test.cpp)
+  target_compile_options(sshd_object_motion_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_object_motion_tests PRIVATE sshd_render)
+  add_test(NAME object_motion COMMAND sshd_object_motion_tests)
+  set_tests_properties(object_motion PROPERTIES
+    PASS_REGULAR_EXPRESSION "object motion tests: [0-9]+ passed, 0 failed")
+
+  # Replays a capture without the game: prints the command list from the frame builder, renders it
+  # headless and writes the displayed frame as a PNG.
+  add_executable(sshd_rsxreplay tools/sshd_rsxreplay/main.cpp)
+  target_compile_options(sshd_rsxreplay PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_rsxreplay PRIVATE sshd_render)
+
+  if(SSHD_STREAMLINE_ENABLED)
+    sshd_render_add_streamline_runtime()
+    add_dependencies(sshd_render_tests sshd_streamline_runtime)
+    add_dependencies(sshd_rsxreplay sshd_streamline_runtime)
+    # The game loads the DLLs from its own directory. It is defined earlier, and only when the generated tree exists.
+    if(TARGET sshd_game)
+      add_dependencies(sshd_game sshd_streamline_runtime)
+    endif()
+  endif()
+
+  include("${CMAKE_SOURCE_DIR}/cmake/rsx_replay.cmake")
+  set(replay_capture
+    "${CMAKE_SOURCE_DIR}/generated/rsx/captures/${SSHD_RSX_REPLAY_CAPTURE}.sshdcap")
+  set(replay_reference
+    "${CMAKE_SOURCE_DIR}/generated/rsx/reference/${SSHD_RSX_REPLAY_CAPTURE}.png")
+  set(replay_args "${replay_capture}" --out "${CMAKE_BINARY_DIR}/replay")
+  set(replay_register TRUE)
+  if(NOT "${SSHD_RSX_REPLAY_REFERENCE_SHA256}" STREQUAL "")
+    # A pinned reference must exist and match, so the thresholds are never applied to another image.
+    set(replay_register FALSE)
+    # The pin is checked at configure time, so a changed or newly added reference must re-run it.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${replay_reference}")
+    if(NOT EXISTS "${replay_reference}")
+      message(STATUS "SSHD: rsx_replay test not registered "
+        "(generated/rsx/reference/${SSHD_RSX_REPLAY_CAPTURE}.png not found)")
+    else()
+      file(SHA256 "${replay_reference}" replay_reference_sha256)
+      if(NOT replay_reference_sha256 STREQUAL "${SSHD_RSX_REPLAY_REFERENCE_SHA256}")
+        message(STATUS "SSHD: rsx_replay test not registered "
+          "(generated/rsx/reference/${SSHD_RSX_REPLAY_CAPTURE}.png does not match the pinned SHA-256)")
+      else()
+        set(replay_register TRUE)
+        list(APPEND replay_args --compare "${replay_reference}")
+        if(NOT "${SSHD_RSX_REPLAY_MAX_DIFF}" STREQUAL "")
+          list(APPEND replay_args --max-diff "${SSHD_RSX_REPLAY_MAX_DIFF}")
+        endif()
+        if(NOT "${SSHD_RSX_REPLAY_MEAN_DIFF}" STREQUAL "")
+          list(APPEND replay_args --max-mean "${SSHD_RSX_REPLAY_MEAN_DIFF}")
+        endif()
+        if(NOT "${SSHD_RSX_REPLAY_DIFFERING_PERCENT}" STREQUAL "")
+          list(APPEND replay_args --max-differing "${SSHD_RSX_REPLAY_DIFFERING_PERCENT}")
+        endif()
+      endif()
+    endif()
+  endif()
+  if(NOT EXISTS "${replay_capture}")
+    set(replay_register FALSE)
+  endif()
+  if(replay_register)
+    add_test(NAME rsx_replay COMMAND sshd_rsxreplay ${replay_args})
+    set_tests_properties(rsx_replay PROPERTIES
+      LABELS run
+      PASS_REGULAR_EXPRESSION "replay: [0-9]+ commands, [0-9]+ draws, [0-9]+ skipped"
+      FAIL_REGULAR_EXPRESSION "validation: [a-z]+, [1-9][0-9]* errors;error: ")
+  elseif(NOT EXISTS "${replay_capture}")
+    message(STATUS "SSHD: rsx_replay test not registered "
+      "(generated/rsx/captures/${SSHD_RSX_REPLAY_CAPTURE}.sshdcap not found)")
+  endif()
+
+  # Smoke test of the --repeat measurement the fixed-input comparisons use, and of the counters on the builder and
+  # render lines. One run checks every line: they are printed once, in this order, after the iterations.
+  set(replay_repeat_capture
+    "${CMAKE_SOURCE_DIR}/generated/rsx/captures/${SSHD_RSX_REPLAY_REPEAT_CAPTURE}.sshdcap")
+  if(EXISTS "${replay_repeat_capture}")
+    # The tracking skips hashes of unchanged textures only when the option is on; with it off the counters stay 0.
+    if(SSHD_RSX_WRITE_WATCH)
+      set(hash_skip_regex
+        "texture hash skips [1-9][0-9]* \\(safety hashes [0-9]+, unreported changes 0\\)")
+    else()
+      set(hash_skip_regex
+        "texture hash skips 0 \\(safety hashes 0, unreported changes 0\\)")
+    endif()
+    add_test(NAME rsx_replay_repeat
+      COMMAND sshd_rsxreplay "${replay_repeat_capture}" --repeat 3 --quiet --no-validation)
+    # A CMake regular expression's "." also matches a newline, so ".*" spans the lines in between.
+    set_tests_properties(rsx_replay_repeat PROPERTIES
+      LABELS run
+      PASS_REGULAR_EXPRESSION
+      "cycles: ${SSHD_RSX_REPLAY_REPEAT_CAPTURE}, 3 iterations \\(first excluded\\), median thread cycles per iteration: build [0-9]+, record [0-9]+, total [0-9]+.*builder: per iteration .*, texture unit cache [0-9]+ hits [0-9]+ misses, ${hash_skip_regex}.*render: per iteration .*, texture binds [0-9]+ cached [0-9]+ full;"
+      FAIL_REGULAR_EXPRESSION "error: ")
+  else()
+    message(STATUS "SSHD: rsx_replay_repeat test not registered "
+      "(generated/rsx/captures/${SSHD_RSX_REPLAY_REPEAT_CAPTURE}.sshdcap not found)")
+  endif()
+endfunction()

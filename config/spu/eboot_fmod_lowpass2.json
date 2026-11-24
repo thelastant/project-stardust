@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "image": "eboot_fmod_lowpass2",
+  "input": {
+    "container_sha256": "e6a286c20571264388a5ad93c42903de9b9a00c42595a4f4334c1441bfce89a1",
+    "image_sha256": "4209345d5718910971aeb9db34f9b0ac1a223292399d12445f2bbd8abd8ca78a",
+    "registry_entry_sha256": "1f7edd170373b938463f8ee20cee980e449d0b1159e7efed1619f7c2701f9c63"
+  },
+  "segments": [{"ls": "0x80", "size": "0x13c0", "code": true}, {"ls": "0x1480", "size": "0x20", "code": false}],
+  "entry": "0xc8",
+  "functions": [
+    {
+      "entry": "0xc8",
+      "sources": ["entry"],
+      "ranges": [["0x90", "0xc4"], ["0xc8", "0xcc"]],
+      "call_sites": [],
+      "returns": ["0xc0"],
+      "indirect": []
+    },
+    {
+      "entry": "0x140",
+      "sources": ["data"],
+      "ranges": [["0xd0", "0x13c"], ["0x140", "0x150"]],
+      "call_sites": [],
+      "returns": ["0x110", "0x138"],
+      "indirect": []
+    }
+  ],
+  "dispatch_seeds": [{"ls": "0xc8", "sources": ["entry"]}, {"ls": "0x140", "sources": ["data"]}],
+  "jump_tables": [],
+  "constant_targets": [],
+  "unresolved_indirect": []
+}

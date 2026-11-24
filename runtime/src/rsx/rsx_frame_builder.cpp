@@ -1,0 +1,1273 @@
+#include "rsx/rsx_frame_builder.h"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <chrono>
+#include <cstring>
+#include <format>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <utility>
+
+#include "core/guest_memory.h"
+#include "core/log.h"
+#include "sshd/ppu_context.h"
+#include "rsx/fifo_parser.h"
+#include "rsx/rsx_census.h"
+#include "rsx/rsx_decode.h"
+#include "rsx/rsx_hash_stream.h"
+#include "rsx/rsx_texture_layout.h"
+#include "rsx/rsx_unimplemented.h"
+
+namespace sshd {
+namespace {
+
+constexpr std::uint32_t kIoPageSize = 0x100000;
+constexpr std::uint32_t kIoPageMask = kIoPageSize - 1;
+
+// Registers that RPCS3 defers with an execution barrier when they change inside an open draw clause.
+bool isDrawParameter(std::uint32_t method) {
+    return method == kMethodNv4097SetVertexDataBaseOffset || method == kMethodNv4097SetVertexDataBaseIndex ||
+           (method >= kMethodNv4097SetVertexDataArrayOffset &&
+            method < kMethodNv4097SetVertexDataArrayOffset + 16 * 4) ||
+           method == kMethodNv4097SetTransformConstantLoad ||
+           (method >= kMethodNv4097SetTransformConstant &&
+            method < kMethodNv4097SetTransformConstant + kRsxTransformWindow * 4);
+}
+
+void noteState(std::string_view key) { rsxNoteUnimplemented("state", key); }
+
+// Guest bytes per vertex element: `size` components of the component width of the vertex type; the
+// packed CMP type is one 32-bit word. 0 for the types the renderer cannot take (already counted by
+// decodeVertexAttribs). RPCS3 `RSXThread.cpp` get_vertex_type_size_on_host pads 3-component vectors
+// to four on the host; the guest data is not padded.
+std::uint32_t elementBytes(std::uint32_t type, std::uint32_t size) {
+    switch (type) {
+        case 1:  // s1
+        case 3:  // sf
+        case 5:  // s32k
+            return 2 * size;
+        case 2:  // f
+            return 4 * size;
+        case 4:  // ub
+        case 7:  // ub256
+            return size;
+        case 6:  // cmp
+            return 4;
+        default: return 0;
+    }
+}
+
+// Bytes per element in the interleaved block of an inline array. RPCS3 `get_vertex_type_size_on_host` pads
+// 3-component 16-bit and 8-bit vectors to four, and the block stride is the sum of these sizes.
+std::uint32_t inlineElementBytes(std::uint32_t type, std::uint32_t size) {
+    return elementBytes(type, size == 3 && type != 2 /* f */ ? 4 : size);
+}
+
+std::uint32_t readBe32(const std::uint8_t* p) {
+    return (static_cast<std::uint32_t>(p[0]) << 24) | (static_cast<std::uint32_t>(p[1]) << 16) |
+           (static_cast<std::uint32_t>(p[2]) << 8) | p[3];
+}
+
+std::uint32_t readBe16(const std::uint8_t* p) { return (static_cast<std::uint32_t>(p[0]) << 8) | p[1]; }
+
+// Smallest and largest index outside the restart value, and whether the restart value occurred. The restart test is
+// hoisted out of the loops: most draws have no restart enabled, and a u16 index can never equal a wider value.
+template <std::uint32_t kSize>
+void scanIndices(const std::uint8_t* data, std::uint32_t count, bool restart, std::uint32_t restart_index,
+                 std::uint32_t& min_index, std::uint32_t& max_index, bool& restart_used) {
+    const auto read = [](const std::uint8_t* p) { return kSize == 2 ? readBe16(p) : readBe32(p); };
+    std::uint32_t lo = 0xFFFFFFFF, hi = 0;
+    if (kSize == 2 && restart_index > 0xFFFF) restart = false;
+    if (!restart) {
+        for (std::uint32_t i = 0; i < count; i++) {
+            const std::uint32_t index = read(data + static_cast<std::size_t>(i) * kSize);
+            lo = std::min(lo, index);
+            hi = std::max(hi, index);
+        }
+    } else {
+        for (std::uint32_t i = 0; i < count; i++) {
+            const std::uint32_t index = read(data + static_cast<std::size_t>(i) * kSize);
+            if (index == restart_index) {
+                restart_used = true;
+                continue;
+            }
+            lo = std::min(lo, index);
+            hi = std::max(hi, index);
+        }
+    }
+    min_index = lo;
+    max_index = hi;
+}
+
+// Big-endian bytes of `words`, the form the census hashes programs in.
+std::uint64_t hashWords(const std::vector<std::uint32_t>& words) {
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(words.size() * 4);
+    for (const std::uint32_t word : words) {
+        for (int shift = 24; shift >= 0; shift -= 8) bytes.push_back(static_cast<std::uint8_t>(word >> shift));
+    }
+    return rsxHash64(bytes.data(), bytes.size());
+}
+
+// Fits [pos, pos + length) in [0, parent) the way RPCS3 `rsx::clip_region` does with attempt_fit set
+// (`Utils/rsx_utils.h`): a region that starts inside the parent is shortened; one that starts outside
+// moves to 0 and only keeps its length when that is below the parent size.
+void clipAxis(std::uint32_t parent, std::uint32_t& pos, std::uint32_t& length) {
+    if (pos + length <= parent) return;
+    if (pos >= parent) {
+        if (length >= parent) length = parent;
+        pos = 0;
+    } else {
+        length = parent - pos;
+    }
+}
+
+}  // namespace
+
+bool RsxMemoryView::hashRange(std::uint32_t location, std::uint32_t offset, std::size_t size, std::uint64_t& out) {
+    hash_scratch_.resize(size);
+    if (!read(location, offset, hash_scratch_)) return false;
+    out = rsxHashBytes(hash_scratch_);
+    return true;
+}
+
+bool GuestRsxMemoryView::read(std::uint32_t location, std::uint32_t offset, std::span<std::uint8_t> out) {
+    if (out.empty()) return true;
+    const GuestMemory& memory = process().memory;
+    if (location == 0) {
+        if (offset >= kRsxLocalSize || out.size() > kRsxLocalSize - offset) return false;
+        const std::uint32_t ea = kRsxLocalBase + offset;
+        if (!memory.isCommitted(ea, static_cast<std::uint32_t>(out.size()))) return false;
+        std::memcpy(out.data(), base_ + ea, out.size());
+        return true;
+    }
+    // The IO map is made of 1 MiB pages that need not be contiguous in guest memory.
+    std::size_t done = 0;
+    while (done < out.size()) {
+        const std::uint64_t io = static_cast<std::uint64_t>(offset) + done;
+        if (io > 0xFFFFFFFFull) return false;
+        const std::uint32_t chunk = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+                out.size() - done, kIoPageSize - (static_cast<std::uint32_t>(io) & kIoPageMask)));
+        std::uint32_t ea = 0;
+        if (!rsxIoToEa(static_cast<std::uint32_t>(io), ea) || !memory.isCommitted(ea, chunk)) return false;
+        std::memcpy(out.data() + done, base_ + ea, chunk);
+        done += chunk;
+    }
+    return true;
+}
+
+// The same bounds and commit checks as read(), with the bytes hashed where they lie. The local range is one span;
+// the IO map is hashed page by page through a streaming state, so no scratch copy is made either way.
+bool GuestRsxMemoryView::hashRange(std::uint32_t location, std::uint32_t offset, std::size_t size, std::uint64_t& out) {
+    const GuestMemory& memory = process().memory;
+    if (size == 0) {
+        out = rsxHashBytes({});
+        return true;
+    }
+    if (location == 0) {
+        if (offset >= kRsxLocalSize || size > kRsxLocalSize - offset) return false;
+        const std::uint32_t ea = kRsxLocalBase + offset;
+        if (!memory.isCommitted(ea, static_cast<std::uint32_t>(size))) return false;
+        out = rsxHashBytes(std::span<const std::uint8_t>(base_ + ea, size));
+        return true;
+    }
+    RsxHashStream stream;
+    std::size_t done = 0;
+    while (done < size) {
+        const std::uint64_t io = static_cast<std::uint64_t>(offset) + done;
+        if (io > 0xFFFFFFFFull) return false;
+        const std::uint32_t chunk = static_cast<std::uint32_t>(
+                std::min<std::uint64_t>(size - done, kIoPageSize - (static_cast<std::uint32_t>(io) & kIoPageMask)));
+        std::uint32_t ea = 0;
+        if (!rsxIoToEa(static_cast<std::uint32_t>(io), ea) || !memory.isCommitted(ea, chunk)) return false;
+        stream.update(std::span<const std::uint8_t>(base_ + ea, chunk));
+        done += chunk;
+    }
+    out = stream.digest();
+    return true;
+}
+
+#if SSHD_RSX_WRITE_WATCH
+namespace {
+
+constexpr std::uint32_t kWatchPageSize = 0x1000;
+
+// Process-wide because the OS state it mirrors is: a report that one view consumes must stay visible to the others.
+struct LocalWriteTable {
+    std::mutex mutex;
+    std::vector<std::uint64_t> stamps;  // per local page: the serial of the check that last saw it written
+    std::uint64_t serial = 0;
+    std::vector<std::uint32_t> pages;  // scratch for collectWrites
+};
+
+LocalWriteTable& localWriteTable() {
+    static LocalWriteTable table;
+    return table;
+}
+
+}  // namespace
+
+RsxWriteCheck GuestRsxMemoryView::checkWrites(std::uint32_t location, std::uint32_t offset, std::size_t size,
+                                              std::uint64_t since) {
+    if (location != 0) return {};
+    LocalWriteTable& table = localWriteTable();
+    const std::lock_guard<std::mutex> lock(table.mutex);
+    if (table.stamps.empty()) table.stamps.assign(kRsxLocalSize / kWatchPageSize, 0);
+    const std::uint64_t now = ++table.serial;
+    if (offset >= kRsxLocalSize || size > kRsxLocalSize - offset) return {true, false, now};
+    if (size == 0) return {true, since != 0, now};
+    // A refused collection (uncommitted page, OS error) leaves the range reported for the next one.
+    if (!process().memory.collectWrites(kRsxLocalBase + offset, static_cast<std::uint32_t>(size), table.pages)) {
+        return {true, false, now};
+    }
+    for (const std::uint32_t page_address : table.pages) {
+        table.stamps[(page_address - kRsxLocalBase) / kWatchPageSize] = now;
+    }
+    std::uint64_t newest = 0;
+    const std::size_t last = (static_cast<std::uint64_t>(offset) + size - 1) / kWatchPageSize;
+    for (std::size_t page = offset / kWatchPageSize; page <= last; page++) {
+        newest = std::max(newest, table.stamps[page]);
+    }
+    return {true, since != 0 && newest <= since, now};
+}
+#endif
+
+void RsxFrameBuilder::onWrite(const RsxRegisters& regs, std::uint32_t method, std::uint32_t value) {
+    method &= 0xFFFC;
+    if (const char* name = rsxIgnoredMethodName(method)) rsxNoteUnimplemented("method", name);
+    switch (method) {
+        case kMethodNv4097SetBeginEnd:
+            // RPCS3 ignores the upper bits (nv4097.cpp set_begin_end).
+            if ((value & 0xFF) != 0) {
+                beginDraw(value & 0xFF);
+            } else {
+                endDraw(regs);
+            }
+            break;
+        case kMethodNv4097DrawArrays: addRange(false, value); break;
+        case kMethodNv4097DrawIndexArray: addRange(true, value); break;
+        case kMethodNv4097ArrayElement16:
+        case kMethodNv4097ArrayElement32: addArrayElements(method, value); break;
+        case kMethodNv4097InlineArray: addInlineWord(value); break;
+        case kMethodNv4097ClearSurface: clear(regs, value); break;
+        // Points where the guest learns how far the RSX has got, or the RSX changes memory outside a draw: the
+        // guest may rewrite texture memory after them (see rsx_texture_cache.h).
+        case kMethodNv406eSemaphoreAcquire:
+        case kMethodNv406eSemaphoreRelease:
+        case kMethodNv4097BackEndWriteSemaphoreRelease:
+        case kMethodNv4097TextureReadSemaphoreRelease:
+        case kMethodNv0039BufferNotify:
+        case kMethodNv3089ImageIn: textures_.beginEpoch(); break;
+        default:
+            if (method >= kMethodNv308aColor && method < kMethodNv308aColor + kMethodNv308aColorCount * 4) {
+                textures_.beginEpoch();
+                break;
+            }
+            if (in_draw_ && clause_ != ClauseKind::Empty && isDrawParameter(method))
+                noteState("draw parameter change inside a clause");
+            // RPCS3 collects these into per-vertex push buffers inside a clause; that path is not modelled.
+            if (in_draw_ && rsxImmediateVertexMethod(method)) noteState("vertex data inside a clause");
+            break;
+    }
+}
+
+void RsxFrameBuilder::onFlip(const RsxRegisters&, std::uint32_t buffer, const RsxDisplayBuffer& display,
+                             std::uint64_t completed_us) {
+    RsxFlip flip;
+    flip.buffer = buffer;
+    flip.offset = display.offset;
+    flip.pitch = display.pitch;
+    flip.width = display.width;
+    flip.height = display.height;
+    flip.flip_index = flips_++;
+    flip.completed_us = completed_us;
+    commands_.emplace_back(flip);
+    textures_.onFlip(flips_);
+}
+
+std::vector<RsxCommand> RsxFrameBuilder::takeCommands() { return std::exchange(commands_, {}); }
+
+void RsxFrameBuilder::recycle(std::vector<RsxCommand>&& commands) {
+    for (RsxCommand& command : commands) {
+        RsxDraw* draw = std::get_if<RsxDraw>(&command);
+        if (draw == nullptr || spare_draws_.size() >= kRecycledDraws) continue;
+        DrawBuffers& spare = spare_draws_.emplace_back();
+        spare.attribs = std::move(draw->attribs);
+        spare.vertex_data = std::move(draw->vertex_data);
+        spare.index_data = std::move(draw->index_data);
+        spare.textures = std::move(draw->textures);
+        spare.vp_ucode = std::move(draw->vp_ucode);
+        spare.fp_ucode = std::move(draw->fp_ucode);
+        spare.fp_constants = std::move(draw->fp_constants);
+        // Clearing drops the shared texture blobs now, not when the spare is next used.
+        spare.attribs.clear();
+        spare.textures.clear();
+        spare.vp_ucode.clear();
+        spare.fp_ucode.clear();
+        spare.fp_constants.clear();
+        // swap, not `= {}`: that picks the initializer_list overload, which keeps the capacity.
+        if (spare.vertex_data.capacity() > kRecycledVertexBytes) {
+            std::vector<std::uint8_t>().swap(spare.vertex_data);
+        } else {
+            spare.vertex_data.clear();
+        }
+        if (spare.index_data.capacity() > kRecycledIndexBytes) {
+            std::vector<std::uint8_t>().swap(spare.index_data);
+        } else {
+            spare.index_data.clear();
+        }
+    }
+    commands.clear();
+    // takeCommands() leaves commands_ without capacity; hand it the vector that has some.
+    if (commands_.empty() && commands.capacity() > commands_.capacity()) commands_ = std::move(commands);
+}
+
+void RsxFrameBuilder::beginDraw(std::uint32_t primitive) {
+    in_draw_ = true;
+    clause_ = ClauseKind::Empty;
+    clause_mixed_ = false;
+    indexed_ = false;
+    array_elements_.clear();
+    inline_words_.clear();
+    // An invalid primitive still opens a clause in RPCS3 (it leaves the previous draw state in place and
+    // sets in_begin_end); nothing sensible can be drawn from it.
+    skip_draw_ = !decodePrimitive(primitive, primitive_);
+}
+
+// RPCS3 `draw_clause::append`: a range that continues the previous one extends it. Other cases (sorted
+// insertion, duplicates, execution barriers) are not modelled.
+void RsxFrameBuilder::addRange(bool indexed, std::uint32_t value) {
+    if (!in_draw_) {
+        noteState("draw range outside a clause");
+        return;
+    }
+    if (clause_ != ClauseKind::Empty && clause_ != ClauseKind::Ranges) {
+        noteState("mixed draw commands in one clause");
+        clause_mixed_ = true;
+        return;
+    }
+    const RsxDrawRange range = decodeDrawRange(value);
+    if (clause_ == ClauseKind::Empty) {
+        clause_ = ClauseKind::Ranges;
+        indexed_ = indexed;
+        range_ = {range.first, range.count};
+        return;
+    }
+    if (indexed != indexed_) {
+        noteState("array and indexed ranges in one clause");
+    } else if (range_.first + range_.count == range.first) {
+        range_.count += range.count;
+    } else {
+        noteState("multiple ranges");
+    }
+}
+
+// RPCS3 `set_array_element16/32`: a 16-bit write carries two indices, the low half first.
+void RsxFrameBuilder::addArrayElements(std::uint32_t method, std::uint32_t value) {
+    if (!in_draw_) {
+        noteState("array element outside a clause");
+        return;
+    }
+    if (clause_ != ClauseKind::Empty && clause_ != ClauseKind::Elements) {
+        noteState("mixed draw commands in one clause");
+        clause_mixed_ = true;
+        return;
+    }
+    clause_ = ClauseKind::Elements;
+    indexed_ = true;
+    if (method == kMethodNv4097ArrayElement16) {
+        array_elements_.push_back(value & 0xFFFF);
+        array_elements_.push_back(value >> 16);
+    } else {
+        array_elements_.push_back(value);
+    }
+}
+
+// RPCS3 `draw_inline_array`: the words are the vertex data, appended in FIFO order.
+void RsxFrameBuilder::addInlineWord(std::uint32_t value) {
+    if (!in_draw_) {
+        noteState("inline array outside a clause");
+        return;
+    }
+    if (clause_ != ClauseKind::Empty && clause_ != ClauseKind::Inline) {
+        noteState("mixed draw commands in one clause");
+        clause_mixed_ = true;
+        return;
+    }
+    clause_ = ClauseKind::Inline;
+    inline_words_.push_back(value);
+}
+
+std::int32_t RsxFrameBuilder::findSurface(std::uint32_t location, std::uint32_t offset) const {
+    for (std::size_t i = 0; i < known_surfaces_.size(); i++) {
+        if (known_surfaces_[i].location == location && known_surfaces_[i].offset == offset)
+            return static_cast<std::int32_t>(i);
+    }
+    return -1;
+}
+
+// A color surface needs a color format the renderer can draw to; a depth surface carries its depth format
+// and no color format. Anything else (no depth bound, an unsupported format) is not registered.
+std::int32_t RsxFrameBuilder::noteSurface(const RsxSurface& surface) {
+    const bool is_depth = surface.depth_format != RsxDepthFormat::None;
+    if (is_depth ? surface.depth_format == RsxDepthFormat::Unsupported
+                 : surface.format == RsxColorFormat::Unsupported) {
+        return -1;
+    }
+    // The renderer keeps the surface contents on the GPU and guest memory stays as it was, but a texture
+    // that overlaps the surface is then read again, as the RSX would see the pixels written to it.
+    // The pitch covers the expanded row of an anti-aliased layout, and the surface holds samples_y rows per pixel row.
+    if (surface.pitch == 0 || surface.height == 0) {
+        textures_.beginEpoch();
+    } else {
+        textures_.noteWrite(surface.location, surface.offset,
+                            static_cast<std::uint64_t>(surface.offset) +
+                                    static_cast<std::uint64_t>(surface.pitch) * surface.height * surface.samples_y);
+    }
+    const std::int32_t index = findSurface(surface.location, surface.offset);
+    if (index >= 0) {
+        // fillTextures reads only the depth format of a known surface (the address matched already), so a draw that
+        // rewrites the entry with the same format leaves the unit states valid.
+        if (known_surfaces_[index].depth_format != surface.depth_format) surfaces_generation_++;
+        known_surfaces_[index] = surface;  // size or pitch may have changed
+        return index;
+    }
+    if (known_surfaces_.size() >= kRsxMaxKnownSurfaces) {
+        noteState("too many render targets");
+        return -1;
+    }
+    surfaces_generation_++;
+    known_surfaces_.push_back(surface);
+    return static_cast<std::int32_t>(known_surfaces_.size() - 1);
+}
+
+// RPCS3 `VKGSRender::clear_surface`: the stencil bit is dropped while the stencil write mask is 0, a
+// clear with no color/depth/stencil bit does nothing, stencil needs a D24S8 target and color needs a
+// bound color target. The rectangle is the scissor clipped to the framebuffer (`rsx::clip_region`);
+// an empty scissor makes RPCS3 skip the clear (`thread::get_scissor`). RPCS3 also intersects the
+// scissor with the viewport for some clears; that is not modelled.
+void RsxFrameBuilder::clear(const RsxRegisters& regs, std::uint32_t mask) {
+    constexpr std::uint32_t kColorBits = kRsxClearRed | kRsxClearGreen | kRsxClearBlue | kRsxClearAlpha;
+    RsxClear c = decodeClear(regs, mask);
+    if ((regs.reg(kMethodNv4097SetStencilMask) & 0xFF) == 0) mask &= ~kRsxClearStencil;
+    // RPCS3 `clear_surface` turns a color clear of a 32-bit float surface into a no-op.
+    if (!c.surfaces.has_color || c.surfaces.color.format == RsxColorFormat::F_X32) mask &= ~kColorBits;
+    if (c.surfaces.depth_format == RsxDepthFormat::None || c.surfaces.depth_format == RsxDepthFormat::Unsupported) {
+        mask &= ~(kRsxClearDepth | kRsxClearStencil);
+    } else if (c.surfaces.depth_format != RsxDepthFormat::Z24S8) {
+        mask &= ~kRsxClearStencil;
+    }
+    if ((mask & (kColorBits | kRsxClearDepth | kRsxClearStencil)) == 0) return;
+    c.mask = mask;
+
+    if (c.scissor[2] == 0 || c.scissor[3] == 0) return;
+    clipAxis(c.surfaces.clip_w, c.scissor[0], c.scissor[2]);
+    clipAxis(c.surfaces.clip_h, c.scissor[1], c.scissor[3]);
+    if (c.scissor[2] == 0 || c.scissor[3] == 0) return;
+
+    if ((mask & kColorBits) != 0 && c.surfaces.color.format == RsxColorFormat::A8R8G8B8) noteSurface(c.surfaces.color);
+    if ((mask & (kRsxClearDepth | kRsxClearStencil)) != 0) noteSurface(c.surfaces.depth);
+    // RPCS3 clears a partially masked stencil with a shader pass; RsxClear carries no stencil mask, so
+    // the renderer clears the whole byte.
+    if ((mask & kRsxClearStencil) != 0 && (regs.reg(kMethodNv4097SetStencilMask) & 0xFF) != 0xFF) {
+        rsxNoteUnimplemented("state", "partial stencil clear mask");
+    }
+    commands_.emplace_back(std::move(c));
+}
+
+// Per attribute, the guest bytes of vertices [vertex_base, vertex_base + vertex_count): address =
+// (SET_VERTEX_DATA_BASE_OFFSET + array offset) & 0xFFFFFFF (`rsx::get_vertex_offset_from_base`), element
+// k at k * stride. A stride of 0 means one element that every vertex shares (`RSXDrawCommands.cpp`
+// single_vertex blocks). Attributes of one location whose ranges overlap or touch (the fields of an interleaved
+// array) share one copy of the merged range; each attribute's data_offset points into it.
+bool RsxFrameBuilder::fillVertices(const RsxRegisters& regs, RsxDraw& draw, std::uint32_t vertex_base,
+                                   std::uint32_t vertex_count) {
+    const std::uint32_t base_offset = regs.reg(kMethodNv4097SetVertexDataBaseOffset);
+    decodeVertexAttribs(regs, draw.attribs);
+
+    // Pass 1 finds every attribute's range. The first attribute that fails a check ends the plan; pass 2 still reads
+    // the ones before it, so an unreadable earlier attribute is the note that wins, as when each attribute was sized
+    // and read in turn. The size limit counts the ranges as if they were not shared, so the same draws are dropped.
+    struct Source {
+        std::uint64_t address = 0, length = 0;  // length 0: not copied
+        std::size_t interval = 0;
+        std::uint32_t first_index = 0;
+    };
+    std::array<Source, kRsxVertexSlotCount> sources;
+    std::uint64_t unshared = draw.vertex_data.size();
+    const char* failure = nullptr;
+    std::size_t planned = draw.attribs.size();
+    for (std::size_t i = 0; i < draw.attribs.size(); i++) {
+        const RsxVertexAttrib& attrib = draw.attribs[i];
+        const std::uint32_t element = elementBytes(attrib.type, attrib.size);
+        if (element == 0) continue;
+        std::uint32_t first_index = 0;
+        std::uint32_t last_index = 0;
+        if (attrib.stride != 0) {
+            const std::uint32_t last_vertex = vertex_base + vertex_count - 1;
+            if (attrib.frequency != 0 && attrib.frequency_modulo) {
+                const std::uint32_t first_modulo = vertex_base % attrib.frequency;
+                const std::uint32_t last_modulo = last_vertex % attrib.frequency;
+                // A wrapped range needs the complete modulo table; otherwise copy only its contiguous slice.
+                if (vertex_count >= attrib.frequency || vertex_base / attrib.frequency != last_vertex / attrib.frequency) {
+                    first_index = 0;
+                    last_index = attrib.frequency - 1;
+                } else {
+                    first_index = first_modulo;
+                    last_index = last_modulo;
+                }
+            } else if (attrib.frequency > 1 && !attrib.frequency_modulo) {
+                first_index = vertex_base / attrib.frequency;
+                last_index = last_vertex / attrib.frequency;
+            } else {
+                first_index = vertex_base;
+                last_index = last_vertex;
+            }
+        }
+        const std::uint64_t first = static_cast<std::uint64_t>(first_index) * attrib.stride;
+        const std::uint64_t length = attrib.stride == 0
+                                             ? element
+                                             : static_cast<std::uint64_t>(last_index - first_index) * attrib.stride +
+                                                       element;
+        const std::uint64_t address = ((base_offset + attrib.offset) & 0xFFFFFFFull) + first;
+        if (unshared + length + 3 > kRsxMaxVertexBytes) {
+            failure = "vertex data too large";
+        } else if (address + length > 0xFFFFFFFFull) {
+            failure = "unreadable vertex memory";
+        }
+        if (failure != nullptr) {
+            planned = i;
+            break;
+        }
+        unshared = ((unshared + 3) & ~std::uint64_t{3}) + length;
+        sources[i] = {address, length, 0, first_index};
+    }
+
+    // Merge the ranges per location, sweeping them in address order.
+    struct Interval {
+        std::uint32_t location = 0;
+        std::uint64_t begin = 0, end = 0, offset = 0;
+        bool placed = false, read = false;
+    };
+    std::array<Interval, kRsxVertexSlotCount> intervals;
+    std::size_t interval_count = 0;
+    std::array<std::uint8_t, kRsxVertexSlotCount> by_address;
+    std::size_t sorted_count = 0;
+    {
+        for (std::size_t i = 0; i < planned; i++) {
+            if (sources[i].length != 0) by_address[sorted_count++] = static_cast<std::uint8_t>(i);
+        }
+        std::sort(by_address.begin(), by_address.begin() + sorted_count, [&](std::uint8_t a, std::uint8_t b) {
+            const std::uint32_t location_a = draw.attribs[a].location, location_b = draw.attribs[b].location;
+            return location_a != location_b ? location_a < location_b : sources[a].address < sources[b].address;
+        });
+        for (std::size_t k = 0; k < sorted_count; k++) {
+            Source& source = sources[by_address[k]];
+            const std::uint32_t location = draw.attribs[by_address[k]].location;
+            if (interval_count != 0 && intervals[interval_count - 1].location == location &&
+                source.address <= intervals[interval_count - 1].end) {
+                intervals[interval_count - 1].end =
+                        std::max(intervals[interval_count - 1].end, source.address + source.length);
+            } else {
+                intervals[interval_count++] = {location, source.address, source.address + source.length,
+                                               0,        false,          false};
+            }
+            source.interval = interval_count - 1;
+        }
+    }
+
+    // Slots are 4-byte aligned and laid out in the order the attributes first use them, so draws without overlap keep
+    // today's layout.
+    std::uint64_t total = draw.vertex_data.size();
+    std::array<std::size_t, kRsxVertexSlotCount> layout;
+    std::size_t layout_count = 0;
+    for (std::size_t i = 0; i < planned; i++) {
+        if (sources[i].length == 0) continue;
+        Interval& interval = intervals[sources[i].interval];
+        if (!interval.placed) {
+            total = (total + 3) & ~std::uint64_t{3};
+            interval.offset = total;
+            interval.placed = true;
+            total += interval.end - interval.begin;
+            layout[layout_count++] = sources[i].interval;
+        }
+        draw.attribs[i].data_offset =
+                static_cast<std::uint32_t>(interval.offset + (sources[i].address - interval.begin));
+    }
+
+    // While timing, the distinct bytes of the attributes whose interval was read, merged again from the attribute
+    // ranges themselves: equal to the bytes copied unless the merge above is wrong.
+    const auto countUnion = [&] {
+        if (!timing_enabled_) return;
+        bool open = false;
+        std::uint32_t location = 0;
+        std::uint64_t begin = 0, end = 0;
+        for (std::size_t k = 0; k < sorted_count; k++) {
+            const std::size_t i = by_address[k];
+            if (!intervals[sources[i].interval].read) continue;
+            const std::uint64_t source_end = sources[i].address + sources[i].length;
+            if (open && draw.attribs[i].location == location && sources[i].address <= end) {
+                end = std::max(end, source_end);
+                continue;
+            }
+            if (open) stats_.vertex_bytes_union += end - begin;
+            open = true;
+            location = draw.attribs[i].location;
+            begin = sources[i].address;
+            end = source_end;
+        }
+        if (open) stats_.vertex_bytes_union += end - begin;
+    };
+
+    draw.vertex_data.resize(static_cast<std::size_t>(total));
+    for (std::size_t k = 0; k < layout_count; k++) {
+        Interval& interval = intervals[layout[k]];
+        const std::span<std::uint8_t> out(draw.vertex_data.data() + interval.offset, interval.end - interval.begin);
+        if (!memory_.read(interval.location, static_cast<std::uint32_t>(interval.begin), out)) {
+            countUnion();
+            noteState("unreadable vertex memory");
+            return false;
+        }
+        interval.read = true;
+        stats_.vertex_bytes_copied += out.size();
+    }
+    countUnion();
+    for (std::size_t i = 0; i < planned; i++) {
+        if (sources[i].length != 0) draw.attribs[i].has_data = true;
+    }
+    if (failure != nullptr) {
+        noteState(failure);
+        return false;
+    }
+    // The renderer consumes one input element per draw vertex. Expand RSX frequency/divider
+    // attributes into a dense stream using the RSX vertex index before uploading them.
+    for (std::size_t i = 0; i < planned; i++) {
+        RsxVertexAttrib& attrib = draw.attribs[i];
+        if (attrib.stride == 0 || attrib.frequency == 0 ||
+            (attrib.frequency == 1 && !attrib.frequency_modulo) || !attrib.has_data) continue;
+        const std::uint32_t element = elementBytes(attrib.type, attrib.size);
+        if (element == 0) continue;
+        const std::uint64_t expanded_size = static_cast<std::uint64_t>(vertex_count) * element;
+        const std::uint64_t expanded_base = (draw.vertex_data.size() + 3) & ~std::uint64_t{3};
+        if (expanded_base + expanded_size > kRsxMaxVertexBytes) {
+            noteState("vertex data too large");
+            return false;
+        }
+        const std::uint32_t original_offset = attrib.data_offset;
+        const std::uint32_t original_stride = attrib.stride;
+        const std::uint32_t first_index = sources[i].first_index;
+        const std::uint32_t expanded_offset = static_cast<std::uint32_t>(expanded_base);
+        draw.vertex_data.resize(static_cast<std::size_t>(expanded_base + expanded_size));
+        for (std::uint32_t vertex = 0; vertex < vertex_count; vertex++) {
+            const std::uint32_t guest_index = vertex_base + vertex;
+            const std::uint32_t source_index =
+                    rsxVertexFrequencyIndex(guest_index, attrib.frequency, attrib.frequency_modulo);
+            const std::uint8_t* source = draw.vertex_data.data() + original_offset +
+                                         static_cast<std::size_t>(source_index - first_index) * original_stride;
+            std::uint8_t* destination =
+                    draw.vertex_data.data() + expanded_offset + static_cast<std::size_t>(vertex) * element;
+            std::memmove(destination, source, element);
+        }
+        attrib.data_offset = expanded_offset;
+        attrib.stride = static_cast<std::uint16_t>(element);
+    }
+    draw.default_attribs = decodeDefaultAttribs(regs);
+    draw.default_written = regs.vertex_default_written;
+    return true;
+}
+
+// RPCS3 `analyse_inputs_interleaved` and the `draw_inlined_array` visitor: every enabled array joins one interleaved
+// block in slot order, whatever its stride register says, and the vertex count is the inline bytes over the block
+// stride, rounded down. Slots without an array read their default register as in any other draw.
+bool RsxFrameBuilder::fillInlineVertices(const RsxRegisters& regs, RsxDraw& draw) {
+    decodeVertexAttribs(regs, draw.attribs);
+    if (draw.attribs.empty()) {
+        noteState("inline array without vertex arrays");
+        return false;
+    }
+    const std::uint64_t base = (static_cast<std::uint64_t>(draw.vertex_data.size()) + 3) & ~std::uint64_t{3};
+    std::uint32_t stride = 0;
+    for (RsxVertexAttrib& attrib : draw.attribs) {
+        const std::uint32_t bytes = inlineElementBytes(attrib.type, attrib.size);
+        if (bytes == 0) {
+            noteState("inline array vertex type");
+            return false;
+        }
+        attrib.data_offset = static_cast<std::uint32_t>(base + stride);
+        stride += bytes;
+    }
+    const std::uint64_t data_bytes = static_cast<std::uint64_t>(inline_words_.size()) * 4;
+    if (base + data_bytes > kRsxMaxVertexBytes) {
+        noteState("vertex data too large");
+        return false;
+    }
+    const std::uint32_t vertex_count = static_cast<std::uint32_t>(data_bytes / stride);
+    if (vertex_count == 0) return false;
+    for (RsxVertexAttrib& attrib : draw.attribs) {
+        attrib.stride = static_cast<std::uint16_t>(stride);
+        attrib.has_data = true;
+    }
+    // The FIFO's own byte order; a trailing partial vertex is copied too and never read.
+    draw.vertex_data.resize(static_cast<std::size_t>(base + data_bytes), 0);
+    std::uint8_t* out = draw.vertex_data.data() + base;
+    for (const std::uint32_t word : inline_words_) {
+        for (int shift = 24; shift >= 0; shift -= 8) *out++ = static_cast<std::uint8_t>(word >> shift);
+    }
+    draw.count = vertex_count;
+    draw.max_index = vertex_count - 1;
+    draw.default_attribs = decodeDefaultAttribs(regs);
+    draw.default_written = regs.vertex_default_written;
+    return true;
+}
+
+// Texture bytes are copied for 2D, 3D and cube map A8R8G8B8, B8 and DXT1/DXT23/DXT45 textures, linear or
+// swizzled, with their whole mip chain. The copy is converted to what the renderer uploads: every level in
+// tightly packed rows and slices (padding removed), de-swizzled, and a cube map as six faces one after the
+// other; see rsx_texture_layout.h for the guest layout rules. The converted bytes are a shared blob kept in
+// the texture cache (rsx_texture_cache.h), so draws that sample an unchanged texture share one blob and one
+// content id. A texture at a known render target is an alias and carries no bytes; that test comes first, so
+// a cached blob is never used for an address that is a render target now. RPCS3 takes the pitch from the row
+// size when the register is 0 (`texture_cache.h` upload path).
+//
+// A unit remembers the descriptor it pushed last time. The descriptor is a function of the unit's registers (compared
+// as raw words, since contextReset and a replay's start registers write outside the method path), the known surfaces
+// and, for bytes, of what the texture cache returns. So it is pushed again while the words, the surfaces and the cache
+// state (same epoch, no entry created or dropped, no overlapping write since) are unchanged; that is the descriptor
+// the full path would rebuild, without its decode and its lookups. A unit whose full path made a census note is never
+// remembered, so a note is made on every draw as before. One difference remains: a reuse does not refresh the cache
+// entry's LRU tick inside an epoch; the first use in each epoch does, and trimming by size only matters far above
+// what the captures hold.
+void RsxFrameBuilder::fillTextures(const RsxRegisters& regs, RsxDraw& draw) {
+    for (std::uint32_t unit = 0; unit < kRsxTextureUnitCount; unit++) {
+        if (!rsxTextureEnabled(regs, unit)) continue;
+        const std::uint32_t base = unit * 0x20;
+        const std::array<std::uint32_t, 9> words = {regs.reg(kMethodNv4097SetTextureOffset + base),
+                                                    regs.reg(kMethodNv4097SetTextureFormat + base),
+                                                    regs.reg(kMethodNv4097SetTextureControl0 + base),
+                                                    regs.reg(kMethodNv4097SetTextureControl1 + base),
+                                                    regs.reg(kMethodNv4097SetTextureFilter + base),
+                                                    regs.reg(kMethodNv4097SetTextureAddress + base),
+                                                    regs.reg(kMethodNv4097SetTextureImageRect + base),
+                                                    regs.reg(kMethodNv4097SetTextureBorderColor + base),
+                                                    regs.reg(kMethodNv4097SetTextureControl3 + unit * 4)};
+        TextureUnitState& state = unit_states_[unit];
+        if (texture_unit_cache_ && state.valid && state.words == words &&
+            state.surfaces_generation == surfaces_generation_ &&
+            (state.desc.rt_alias >= 0 ||
+             (state.epoch == textures_.epoch() && state.cache_generation == textures_.generation() &&
+              !textures_.writtenSince(state.desc.location, state.desc.offset, state.guest_end, state.write_serial)))) {
+            stats_.texture_unit_hits++;
+            draw.textures.push_back(state.desc);
+            continue;
+        }
+
+        stats_.texture_unit_misses++;
+        const std::uint64_t notes = rsxUnimplementedThreadNotes();
+        std::uint64_t guest_bytes = 0;
+        draw.textures.push_back(buildTextureDesc(regs, unit, guest_bytes));
+        const RsxTextureDesc& t = draw.textures.back();
+
+        state.valid = false;
+        if (!texture_unit_cache_ || rsxUnimplementedThreadNotes() != notes || (t.rt_alias < 0 && t.data == nullptr)) {
+            continue;
+        }
+        state.words = words;
+        state.surfaces_generation = surfaces_generation_;
+        if (t.rt_alias < 0) {
+            // Read after copyTexture: the state the entry was just found fresh or made fresh at.
+            state.epoch = textures_.epoch();
+            state.write_serial = textures_.writeSerial();
+            state.cache_generation = textures_.generation();
+            state.guest_end = static_cast<std::uint64_t>(t.offset) + guest_bytes;
+        }
+        state.desc = t;
+        state.valid = true;
+    }
+}
+
+RsxTextureDesc RsxFrameBuilder::buildTextureDesc(const RsxRegisters& regs, std::uint32_t unit,
+                                                 std::uint64_t& guest_bytes) {
+    RsxTextureDesc t = decodeTexture(regs, unit);
+
+    t.rt_alias = findSurface(t.location, t.offset);
+    if (t.rt_alias >= 0) {
+        t.rt_depth = known_surfaces_[t.rt_alias].depth_format != RsxDepthFormat::None;
+        return t;
+    }
+    if (rsxTextureFormatRenderTargetOnly(t.format))
+        rsxNoteUnimplemented("texture format", rsxTextureFormatName(t.format));
+
+    const RsxTextureKind kind = rsxTextureKind(t);
+    if (kind == RsxTextureKind::Unsupported) {
+        rsxNoteUnimplemented("texture layout", std::format("dimension {}", t.dimension));
+    }
+
+    const bool supported_format = rsxTextureFormatSampleable(t.format);
+    if (supported_format && kind != RsxTextureKind::Unsupported && t.width != 0 && t.height != 0) {
+        guest_bytes = copyTexture(t);
+    }
+    return t;
+}
+
+std::uint64_t RsxFrameBuilder::copyTexture(RsxTextureDesc& t) {
+    const std::uint32_t layers = rsxTextureKind(t) == RsxTextureKind::Cube ? 6 : 1;
+    const RsxTextureCache::Key key{t.location,     t.offset, t.width,
+                                   t.height,       t.pitch,  t.depth,
+                                   t.format,       t.mips,   static_cast<std::uint8_t>(layers),
+                                   t.linear_layout};
+    RsxTextureCache::Entry* entry = textures_.find(key);
+    if (entry != nullptr && textures_.fresh(*entry)) {
+        t.pitch = entry->pitch;
+        t.data = entry->data;
+        t.content_id = entry->content_id;
+        return entry->guest_bytes;
+    }
+
+    RsxTextureLayout fresh_layout;
+    if (entry == nullptr) {
+        if (!rsxTextureLayout(t.format, t.linear_layout, t.width, t.height, t.mips, t.pitch, layers, fresh_layout,
+                              t.depth)) {
+            // The swizzle needs a power-of-two image; otherwise the pitch register is smaller than a row.
+            const bool compressed = rsxTextureBlockBytes(t.format) != 0;
+            const bool power_of_two = std::has_single_bit(t.width) && std::has_single_bit(t.height) &&
+                                      std::has_single_bit<std::uint32_t>(t.depth);
+            if (!t.linear_layout && !compressed && !power_of_two) {
+                rsxNoteUnimplemented("texture layout", "swizzled non-power-of-two");
+            } else {
+                rsxNoteUnimplemented("texture layout", "pitch below row size");
+            }
+            return 0;
+        }
+        if (fresh_layout.guest_bytes > kRsxMaxTextureBytes || fresh_layout.packed_bytes > kRsxMaxTextureBytes) {
+            rsxNoteUnimplemented("texture layout", "too large");
+            return 0;
+        }
+    }
+    const RsxTextureLayout& layout = entry != nullptr ? entry->layout : fresh_layout;
+
+#if SSHD_RSX_WRITE_WATCH
+    // Asked before the bytes are hashed or read, so a write that lands during them is reported by the next check.
+    const RsxWriteCheck check =
+            memory_.checkWrites(t.location, t.offset, layout.guest_bytes, entry != nullptr ? entry->watch_stamp : 0);
+    const std::uint64_t watch_stamp = check.tracked ? check.stamp : 0;
+    const bool reported_clean = check.tracked && check.clean;
+#endif
+    // First use in this epoch, or after a render target write over the range. With write tracking, a range the memory
+    // view reports unwritten since the entry was last checked keeps the entry without reading the bytes, except on the
+    // entry's safety-net flip. Otherwise a cached texture is first hashed where it lies; only a changed or new one is
+    // copied into the scratch buffer (reused) to be converted. The copy is hashed again because the guest may have
+    // written between the two passes, and the blob and its hash must come from the same bytes.
+    if (entry != nullptr) {
+        stats_.texture_validations++;
+#if SSHD_RSX_WRITE_WATCH
+        if (reported_clean) {
+            if (!textures_.hashCheckDue(*entry)) {
+                stats_.texture_hash_skips++;
+                textures_.markFresh(*entry);
+                entry->watch_stamp = watch_stamp;
+                t.pitch = entry->pitch;
+                t.data = entry->data;
+                t.content_id = entry->content_id;
+                return entry->guest_bytes;
+            }
+            stats_.texture_safety_hashes++;
+        }
+#endif
+        std::uint64_t in_place_hash = 0;
+        if (!memory_.hashRange(t.location, t.offset, layout.guest_bytes, in_place_hash)) {
+            textures_.erase(key);
+            noteState("unreadable texture memory");
+            return 0;
+        }
+        stats_.texture_bytes_hashed += layout.guest_bytes;
+        if (in_place_hash == entry->hash) {
+            textures_.markFresh(*entry);
+#if SSHD_RSX_WRITE_WATCH
+            entry->watch_stamp = watch_stamp;
+#endif
+            t.pitch = entry->pitch;
+            t.data = entry->data;
+            t.content_id = entry->content_id;
+            return entry->guest_bytes;
+        }
+#if SSHD_RSX_WRITE_WATCH
+        if (reported_clean) {
+            stats_.texture_unreported_changes++;
+            logOnce("rsx-texture-unreported-change",
+                    "sshd: rsx: texture at local offset {:#x} ({} bytes) changed with no reported write", t.offset,
+                    layout.guest_bytes);
+        }
+#endif
+    }
+    texture_scratch_.resize(layout.guest_bytes);
+    if (!memory_.read(t.location, t.offset, texture_scratch_)) {
+        textures_.erase(key);
+        noteState("unreadable texture memory");
+        return 0;
+    }
+    stats_.texture_bytes_read += layout.guest_bytes;
+    const std::uint64_t hash = rsxHashBytes(texture_scratch_);
+    if (entry != nullptr && entry->hash == hash) {
+        textures_.markFresh(*entry);
+    } else {
+        // Bytes that need no conversion are taken as they are.
+        bool in_place = layout.guest_bytes == layout.packed_bytes;
+        for (const RsxTextureLevel& level : layout.levels) {
+            in_place = in_place && !level.swizzled && !level.vtc && level.guest_offset == level.packed_offset &&
+                       level.guest_pitch == level.row_bytes;
+        }
+        auto blob = std::make_shared<std::vector<std::uint8_t>>();
+        if (in_place) {
+            blob->assign(texture_scratch_.begin(), texture_scratch_.end());
+        } else {
+            blob->resize(layout.packed_bytes);
+            bool ok = true;
+            for (std::size_t i = 0; ok && i < layout.levels.size(); i++) {
+                const RsxTextureLevel& level = layout.levels[i];
+                ok = rsxExtractTextureLevel(
+                        level, layout.block_bytes, texture_scratch_,
+                        std::span<std::uint8_t>(blob->data() + level.packed_offset, level.packed_bytes));
+            }
+            if (!ok) {
+                textures_.erase(key);
+                noteState("unreadable texture memory");
+                return 0;
+            }
+        }
+        entry = &textures_.store(key, layout, hash, std::move(blob));
+    }
+#if SSHD_RSX_WRITE_WATCH
+    entry->watch_stamp = watch_stamp;
+#endif
+    t.pitch = entry->pitch;
+    t.data = entry->data;
+    t.content_id = entry->content_id;
+    return entry->guest_bytes;
+}
+
+// SET_SHADER_PROGRAM: location (value & 3) - 1, offset value & ~3 (RPCS3 `rsx_decode.h`). The program
+// is read up to its end flag. Words are kept as stored (big-endian read, 16-bit halves still swapped);
+// the 4-word block after an instruction that has a constant operand is moved into `fp_constants` and
+// zeroed in `fp_ucode`, so programs that differ only in constants share a hash.
+void RsxFrameBuilder::fillFragmentProgram(const RsxRegisters& regs, RsxDraw& draw) {
+    const std::uint32_t program = regs.reg(kMethodNv4097SetShaderProgram);
+    const std::uint32_t location = (program & 3) - 1, offset = program & ~3u;
+    draw.fp_control = regs.reg(kMethodNv4097SetShaderControl);
+    // RPCS3 `rsx_methods.h` texcoord_control_mask: bit i = register i & 1, ten coordinates. The point
+    // sprite override in the high half (`RSXThread.cpp`) is not modelled.
+    for (std::uint32_t i = 0; i < 10; i++) {
+        draw.texcoord_control |= (regs.reg(kMethodNv4097SetTexCoordControl + i * 4) & 1) << i;
+    }
+    if (location > 1) {
+        noteState("fragment program unreadable");
+        return;
+    }
+    if (matchFragmentProgram(program, location, offset, draw)) {
+        stats_.fp_cache_hits++;
+        return;
+    }
+    stats_.fp_cache_misses++;
+    draw.fp_constants.clear();
+    const RsxFpScan scan = scanFragmentProgram([&](std::uint32_t index, std::uint32_t& word) {
+        std::uint8_t bytes[4];
+        if (!memory_.read(location, offset + index * 4, bytes)) return false;
+        word = readBe32(bytes);
+        return true;
+    });
+    if (!scan.terminated) {
+        noteState("fragment program unreadable");
+        return;
+    }
+    FpCacheEntry entry;
+    draw.fp_ucode.reserve(scan.words.size());
+    for (std::size_t p = 0; p + 4 <= scan.words.size();) {
+        bool constant = false;
+        for (std::size_t w = 1; w < 4; w++) constant = constant || (std::rotl(scan.words[p + w], 16) & 3) == 2;
+        draw.fp_ucode.insert(draw.fp_ucode.end(), scan.words.begin() + p, scan.words.begin() + p + 4);
+        p += 4;
+        if (constant && p + 4 <= scan.words.size()) {
+            draw.fp_constants.insert(draw.fp_constants.end(), scan.words.begin() + p, scan.words.begin() + p + 4);
+            entry.constant_blocks.push_back(static_cast<std::uint32_t>(draw.fp_ucode.size()));
+            draw.fp_ucode.insert(draw.fp_ucode.end(), 4, 0);
+            p += 4;
+        }
+    }
+    entry.bytes.reserve(draw.fp_ucode.size() * 4);
+    for (const std::uint32_t word : draw.fp_ucode) {
+        for (int shift = 24; shift >= 0; shift -= 8) entry.bytes.push_back(static_cast<std::uint8_t>(word >> shift));
+    }
+    draw.fp_hash = rsxHash64(entry.bytes.data(), entry.bytes.size());
+    entry.ucode = draw.fp_ucode;
+    entry.hash = draw.fp_hash;
+    if (fp_cache_.size() >= kFpCacheEntries) fp_cache_.clear();
+    fp_cache_.insert_or_assign(program, std::move(entry));
+}
+
+// A program is the same when its bytes are, apart from the inline constants: the scan's shape (which blocks are
+// constants, where the end flag is) depends only on the instruction words, and those are the bytes compared. The
+// probe reads only what the scan would read for an unchanged program; a changed one falls back to the scan.
+bool RsxFrameBuilder::matchFragmentProgram(std::uint32_t program, std::uint32_t location, std::uint32_t offset,
+                                           RsxDraw& draw) {
+    const auto it = fp_cache_.find(program);
+    if (it == fp_cache_.end()) return false;
+    const FpCacheEntry& entry = it->second;
+    fp_probe_.resize(entry.bytes.size());
+    if (!memory_.tryRead(location, offset, fp_probe_)) return false;
+    draw.fp_constants.reserve(entry.constant_blocks.size() * 4);
+    for (const std::uint32_t block : entry.constant_blocks) {
+        std::uint8_t* bytes = fp_probe_.data() + static_cast<std::size_t>(block) * 4;
+        for (std::size_t w = 0; w < 4; w++) draw.fp_constants.push_back(readBe32(bytes + w * 4));
+        std::memset(bytes, 0, 16);
+    }
+    if (std::memcmp(fp_probe_.data(), entry.bytes.data(), entry.bytes.size()) != 0) return false;
+    draw.fp_ucode = entry.ucode;
+    draw.fp_hash = entry.hash;
+    return true;
+}
+
+void RsxFrameBuilder::fillVertexProgram(const RsxRegisters& regs, RsxDraw& draw) {
+    draw.vp_input_mask = regs.reg(kMethodNv4097SetVertexAttribInputMask);
+    draw.vp_output_mask = regs.reg(kMethodNv4097SetVertexAttribOutputMask);
+    draw.vp_branch_bits = regs.reg(kMethodNv4097SetTransformBranchBits);
+    // Draws between two constant writes share one snapshot. A snapshot no draw holds any more is rewritten in place
+    // instead of allocating a new 7.5 KB vector, and when it holds the contents the registers' dirty range is relative
+    // to, only that range is copied.
+    const std::uint64_t constants_generation = regs.vpConstantsGeneration();
+    if (!constants_snapshot_ || constants_generation_ != constants_generation) {
+        if (constants_snapshot_ && constants_snapshot_.use_count() == 1) {
+            std::vector<std::uint32_t>& snapshot = *constants_snapshot_;
+            const std::size_t begin = regs.vp_constants_dirty_begin;
+            const std::size_t end = std::min<std::size_t>(regs.vp_constants_dirty_end, regs.vp_constants.size());
+            if (regs.vp_constants_base != 0 && regs.vp_constants_base == constants_generation_ &&
+                snapshot.size() == regs.vp_constants.size() && begin <= end) {
+                std::memcpy(snapshot.data() + begin, regs.vp_constants.data() + begin,
+                            (end - begin) * sizeof(std::uint32_t));
+            } else {
+                snapshot.assign(regs.vp_constants.begin(), regs.vp_constants.end());
+            }
+        } else {
+            constants_snapshot_ =
+                    std::make_shared<std::vector<std::uint32_t>>(regs.vp_constants.begin(), regs.vp_constants.end());
+        }
+        constants_generation_ = constants_generation;
+    }
+    draw.vp_constants = constants_snapshot_;
+    draw.vp_constants_id = constants_generation;
+    const std::uint32_t start = regs.vp_start;
+    if (start >= kRsxVpInstructionCount) {
+        noteState("vertex program start out of range");
+        return;
+    }
+    // The flow walk reads only reached instructions, all within [start, flow.last], so a program seen before is the
+    // same while those words are. The store's name decides that without reading it; when the name is new (the
+    // program was uploaded again), the words are compared.
+    const std::uint64_t generation = regs.vpUcodeGeneration();
+    for (std::size_t i = 0; i < vp_cache_.size(); i++) {
+        VpCacheEntry& entry = vp_cache_[i];
+        if (entry.start != start) continue;
+        if (entry.ucode_generation != generation &&
+            std::memcmp(regs.vp_ucode.data() + start * 4, entry.source.data(), entry.source.size() * 4) != 0) {
+            continue;
+        }
+        entry.ucode_generation = generation;
+        std::rotate(vp_cache_.begin(), vp_cache_.begin() + i, vp_cache_.begin() + i + 1);
+        stats_.vp_cache_hits++;
+        // Same notes as the walk below, so the census counts per draw do not depend on the cache.
+        const VpCacheEntry& hit = vp_cache_.front();
+        if (!hit.terminated) noteState("unterminated vertex program");
+        if (hit.bad_target) {
+            noteState("vertex program branch outside the program");
+            return;
+        }
+        draw.vp_ucode = hit.ucode;
+        draw.vp_hash = hit.hash;
+        return;
+    }
+    stats_.vp_cache_misses++;
+
+    // The program may extend past its first end bit when branches or calls lead there, and the store
+    // can hold stale words in between. Only reached instructions are kept (the rest are zeroed, which
+    // decodes as a NOP) so that the hash does not depend on leftovers, and branch targets are rebased
+    // to the first instruction so that the same program hashes the same wherever it was loaded.
+    const RsxVpFlow flow = analyzeVertexProgramFlow(regs.vp_ucode.data(), kRsxVpInstructionCount, start);
+    VpCacheEntry entry;
+    entry.start = start;
+    entry.ucode_generation = generation;
+    entry.source.assign(regs.vp_ucode.begin() + start * 4, regs.vp_ucode.begin() + (flow.last + 1) * 4);
+    entry.terminated = flow.terminated;
+    entry.bad_target = flow.bad_target;
+    if (!flow.terminated) noteState("unterminated vertex program");
+    if (flow.bad_target) {
+        noteState("vertex program branch outside the program");
+    } else {
+        draw.vp_ucode.assign((flow.last - start + 1) * 4, 0);
+        for (std::uint32_t i = start; i <= flow.last; i++) {
+            if (flow.reached[i] == 0) continue;
+            std::uint32_t* out = &draw.vp_ucode[(i - start) * 4];
+            std::copy_n(&regs.vp_ucode[i * 4], 4, out);
+            if (rsxVpHasBranchTarget(rsxVpScaOpcode(out))) rsxVpSetBranchTarget(out, rsxVpBranchTarget(out) - start);
+        }
+        draw.vp_hash = hashWords(draw.vp_ucode);
+        entry.ucode = draw.vp_ucode;
+        entry.hash = draw.vp_hash;
+    }
+    if (vp_cache_.size() >= kVpCacheEntries) vp_cache_.pop_back();
+    vp_cache_.insert(vp_cache_.begin(), std::move(entry));
+}
+
+void RsxFrameBuilder::endDraw(const RsxRegisters& regs) {
+    if (!in_draw_) return;
+    in_draw_ = false;
+    if (skip_draw_ || clause_ == ClauseKind::Empty || clause_mixed_) return;
+    if (defer_draw_end_) {
+        draw_pending_ = true;
+        return;
+    }
+    buildDraw(regs);
+}
+
+void RsxFrameBuilder::finishDraw(const RsxRegisters& regs) {
+    if (!draw_pending_) return;
+    draw_pending_ = false;
+    buildDraw(regs);
+}
+
+void RsxFrameBuilder::buildDraw(const RsxRegisters& regs) {
+    // Counts the early returns for dropped draws too.
+    struct Timer {
+        RsxBuilderStats& stats;
+        bool enabled;
+        std::chrono::steady_clock::time_point begin;
+        Timer(RsxBuilderStats& stats, bool enabled) : stats(stats), enabled(enabled) {
+            if (enabled) begin = std::chrono::steady_clock::now();
+        }
+        ~Timer() {
+            if (!enabled) return;
+            stats.build_draw_ns += static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin)
+                            .count());
+        }
+    } timer(stats_, timing_enabled_);
+    stats_.build_draw_calls++;
+
+    RsxDraw draw;
+    if (!spare_draws_.empty()) {
+        DrawBuffers& spare = spare_draws_.back();
+        draw.attribs = std::move(spare.attribs);
+        draw.vertex_data = std::move(spare.vertex_data);
+        draw.index_data = std::move(spare.index_data);
+        draw.textures = std::move(spare.textures);
+        draw.vp_ucode = std::move(spare.vp_ucode);
+        draw.fp_ucode = std::move(spare.fp_ucode);
+        draw.fp_constants = std::move(spare.fp_constants);
+        spare_draws_.pop_back();
+    }
+    // The indices of an element clause came through the FIFO and are always u32 (RPCS3 `get_vertex_range`).
+    const bool elements = clause_ == ClauseKind::Elements;
+    if (elements && array_elements_.size() > kRsxMaxIndexCount) {
+        noteState("index data too large");
+        return;
+    }
+    // An inline clause is an array draw from element 0; fillInlineVertices sets its count.
+    const bool inline_array = clause_ == ClauseKind::Inline;
+    const std::uint32_t first = elements || inline_array ? 0 : range_.first;
+    const std::uint32_t count = inline_array ? 0
+                                : elements   ? static_cast<std::uint32_t>(array_elements_.size())
+                                             : range_.count;
+    draw.primitive = primitive_;
+    draw.indexed = indexed_;
+    draw.first = first;
+    draw.count = count;
+
+    std::uint32_t vertex_base = first, vertex_count = count;
+    if (indexed_) {
+        std::uint32_t type_size = 4;
+        if (elements) {
+            draw.index_type = kRsxIndexTypeU32;
+            draw.index_data.resize(static_cast<std::size_t>(count) * type_size);
+            for (std::uint32_t i = 0; i < count; i++) {
+                const std::uint32_t index = array_elements_[i];
+                for (std::uint32_t b = 0; b < 4; b++) {
+                    draw.index_data[static_cast<std::size_t>(i) * 4 + b] =
+                            static_cast<std::uint8_t>(index >> (24 - 8 * b));
+                }
+            }
+        } else {
+            // RPCS3 `get_raw_index_array`: the address is aligned down to the index size, the range starts
+            // `first` indices in.
+            const RsxIndexArray array = decodeIndexArray(regs);
+            draw.index_type = array.type;
+            type_size = array.type == kRsxIndexTypeU16 ? 2 : 4;
+            if (count > kRsxMaxIndexCount) {
+                noteState("index data too large");
+                return;
+            }
+            draw.index_data.resize(static_cast<std::size_t>(count) * type_size);
+            const std::uint64_t address =
+                    (array.offset & ~(type_size - 1)) + static_cast<std::uint64_t>(first) * type_size;
+            if (address > 0xFFFFFFFFull ||
+                !memory_.read(array.location, static_cast<std::uint32_t>(address), draw.index_data)) {
+                noteState("unreadable index memory");
+                return;
+            }
+        }
+
+        const bool restart = regs.reg(kMethodNv4097SetRestartIndexEnable) != 0;
+        const std::uint32_t restart_index = regs.reg(kMethodNv4097SetRestartIndex);
+        std::uint32_t min_index = 0xFFFFFFFF, max_index = 0;
+        if (type_size == 2) {
+            scanIndices<2>(draw.index_data.data(), count, restart, restart_index, min_index, max_index,
+                           draw.restart_used);
+        } else {
+            scanIndices<4>(draw.index_data.data(), count, restart, restart_index, min_index, max_index,
+                           draw.restart_used);
+        }
+        draw.restart_index = restart_index;
+        draw.max_index = max_index;
+        // What the renderer can do with a restart index is its own business; only an unsupported one is counted.
+        if (draw.restart_used && !rsxPrimitiveRestartSupported(primitive_, draw.index_type, restart_index)) {
+            noteState("primitive restart");
+        }
+        // RPCS3 `VKVertexBuffers.cpp`: an empty index set, or a single index outside point lists, draws
+        // nothing.
+        if (min_index > max_index || (min_index == max_index && primitive_ != RsxPrimitive::Points)) return;
+        // Indices 0 and 0xFFFFFFFF together span 2^32 vertices, which no count can hold.
+        if (static_cast<std::uint64_t>(max_index) - min_index + 1 > 0xFFFFFFFFull) {
+            noteState("index range too large");
+            return;
+        }
+        draw.min_index = min_index;
+        // The vertex start of an indexed draw is rebased by SET_VERTEX_DATA_BASE_INDEX
+        // (`rsx::get_index_from_base`); array draws are not.
+        vertex_base = (min_index + regs.reg(kMethodNv4097SetVertexDataBaseIndex)) & 0xFFFFF;
+        vertex_count = max_index - min_index + 1;
+    } else {
+        draw.min_index = first;
+        draw.max_index = first + count - 1;
+    }
+
+    draw.surfaces = decodeSurfaceState(regs);
+    draw.raster = decodeRasterState(regs);
+
+    if (inline_array ? !fillInlineVertices(regs, draw) : !fillVertices(regs, draw, vertex_base, vertex_count)) return;
+    // Registered only for a draw that is kept, and before the textures so that sampling the target being
+    // drawn to is seen as an alias. A depth surface counts once the draw can write it, by depth or by
+    // stencil (rsxZetaWriteEnabled), so the unused depth binding of a pass that only needs a color target
+    // is not taken for a surface.
+    if (draw.surfaces.has_color &&
+        (draw.surfaces.color.format == RsxColorFormat::A8R8G8B8 ||
+         draw.surfaces.color.format == RsxColorFormat::F_X32) &&
+        draw.raster.color_mask != 0) {
+        noteSurface(draw.surfaces.color);
+    }
+    if (rsxZetaWriteEnabled(draw.raster, draw.surfaces.depth_format)) noteSurface(draw.surfaces.depth);
+    fillTextures(regs, draw);
+    fillFragmentProgram(regs, draw);
+    fillVertexProgram(regs, draw);
+    commands_.emplace_back(std::move(draw));
+}
+
+}  // namespace sshd

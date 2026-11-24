@@ -1,0 +1,601 @@
+{
+  "schema": 1,
+  "seeds": [
+    {
+      "addr": "0x00318b9c",
+      "reason": "PPU function start missed by recovery inside a code span (boot log: unknown target 0x00318b9c from 0x00318b58)"
+    },
+    {
+      "addr": "0x0041778c",
+      "reason": "PPU function start missed by recovery inside a code span (boot log: unknown target 0x0041778c from 0x004174a4)"
+    },
+    {
+      "addr": "0x00623ce4",
+      "reason": "Indirect switch case selected at runtime by branch 0x00623aac; verified instruction boundary in EBOOT"
+    },
+    {
+      "addr": "0x00623cec",
+      "reason": "Adjacent indirect switch case block verified in EBOOT"
+    },
+    {
+      "addr": "0x00623cf4",
+      "reason": "Adjacent indirect switch case block verified in EBOOT"
+    },
+    {
+      "addr": "0x00623cfc",
+      "reason": "Adjacent indirect switch case block verified in EBOOT"
+    },
+    {
+      "addr": "0x00623c30",
+      "reason": "Runtime-selected default switch target from branch 0x00623aac; verified branch destination in EBOOT"
+    },
+    {
+      "addr": "0x001c299c",
+      "reason": "Runtime-selected target from relative switch table at 0x001c2aac; verified ELF table entry"
+    },
+    {
+      "addr": "0x001c2aec",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b88",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b7c",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b70",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b64",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b58",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b4c",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b40",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b34",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b28",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b1c",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b10",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2b04",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x001c2af8",
+      "reason": "Relative switch-table target at 0x001c2aac; verified by table entry and 16-case bound"
+    },
+    {
+      "addr": "0x0033d8fc",
+      "reason": "Relative switch-table target at 0x0033d8e4; verified by six-case bound and table entry"
+    },
+    {
+      "addr": "0x0033d92c",
+      "reason": "Runtime-selected relative switch target at 0x0033d8e0; verified ELF table entry"
+    },
+    {
+      "addr": "0x0033d970",
+      "reason": "Relative switch-table target at 0x0033d8e4; verified by six-case bound and table entry"
+    },
+    {
+      "addr": "0x0033d9c0",
+      "reason": "Relative switch-table target at 0x0033d8e4; verified by six-case bound and table entry"
+    },
+    {
+      "addr": "0x0033da24",
+      "reason": "Relative switch-table target at 0x0033d8e4; verified by six-case bound and table entry"
+    },
+    {
+      "addr": "0x0033da74",
+      "reason": "Relative switch-table target at 0x0033d8e4; verified by six-case bound and table entry"
+    },
+    {
+      "addr": "0x0018a184",
+      "reason": "Runtime-selected relative switch target at 0x00189c4c; verified ELF table entry"
+    },
+    {
+      "addr": "0x0018a198",
+      "reason": "Relative switch-table target at 0x00189c50; verified by five-entry switch table"
+    },
+    {
+      "addr": "0x0018a204",
+      "reason": "Relative switch-table target at 0x00189c50; verified by five-entry switch table"
+    },
+    {
+      "addr": "0x0018a084",
+      "reason": "Relative switch-table target at 0x00189c50; verified by five-entry switch table"
+    },
+    {
+      "addr": "0x0018a0d0",
+      "reason": "Relative switch-table target at 0x00189c50; verified by five-entry switch table"
+    },
+    {
+      "addr": "0x00386ccc",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00387308",
+      "reason": "Runtime-selected target from relative switch table at 0x00386c84; verified ELF table entry"
+    },
+    {
+      "addr": "0x003873b8",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00387480",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00387564",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x0038765c",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x0038773c",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00386f88",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00387068",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00387148",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00387228",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x00386ea8",
+      "reason": "Relative switch-table target at 0x00386c84; verified by 12-entry bound"
+    },
+    {
+      "addr": "0x0042ff1c",
+      "reason": "Relative switch-table target at 0x0042fd68; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042fd0c",
+      "reason": "Relative switch-table target at 0x0042fd68; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042ff08",
+      "reason": "Relative switch-table target at 0x0042fd68; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042ff2c",
+      "reason": "Runtime-selected relative switch target at 0x0042fd64; verified ELF table entry"
+    },
+    {
+      "addr": "0x0042ff24",
+      "reason": "Relative switch-table target at 0x0042fd68; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042fdfc",
+      "reason": "Relative switch-table target at 0x0042fd68; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042fd04",
+      "reason": "Relative switch-table target at 0x0042fcec; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042fd94",
+      "reason": "Relative switch-table target at 0x0042fcec; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042fdf4",
+      "reason": "Relative switch-table target at 0x0042fcec; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042fdec",
+      "reason": "Relative switch-table target at 0x0042fcec; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042fde4",
+      "reason": "Relative switch-table target at 0x0042fcec; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042fe0c",
+      "reason": "Relative switch-table target at 0x0042fdcc; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042fe5c",
+      "reason": "Relative switch-table target at 0x0042fdcc; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042ffe4",
+      "reason": "Relative switch-table target at 0x0042fdcc; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042ffec",
+      "reason": "Relative switch-table target at 0x0042fdcc; verified by six-entry bound"
+    },
+    {
+      "addr": "0x0042ff3c",
+      "reason": "Relative switch-table target at 0x0042fe30; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042ff44",
+      "reason": "Relative switch-table target at 0x0042fe30; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042ff7c",
+      "reason": "Relative switch-table target at 0x0042fe30; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042ff9c",
+      "reason": "Relative switch-table target at 0x0042fe30; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042fe70",
+      "reason": "Relative switch-table target at 0x0042fe30; verified by 11-entry bound"
+    },
+    {
+      "addr": "0x0042ffd4",
+      "reason": "Runtime-selected target from the bounded relative switch at 0x0042fe30; verified by ELF table entry"
+    },
+    {
+      "addr": "0x0042f518",
+      "reason": "Relative switch-table target at 0x0042f56c; verified by six-case bound"
+    },
+    {
+      "addr": "0x0042f648",
+      "reason": "Relative switch-table target at 0x0042f56c; verified by six-case bound"
+    },
+    {
+      "addr": "0x0042f69c",
+      "reason": "Runtime-selected target from the bounded relative switch at 0x0042f568; verified ELF table entry"
+    },
+    {
+      "addr": "0x0042f694",
+      "reason": "Relative switch-table target at 0x0042f56c; verified by six-case bound"
+    },
+    {
+      "addr": "0x0042f6a4",
+      "reason": "Relative switch-table target at 0x0042f56c; verified by six-case bound"
+    },
+    {
+      "addr": "0x0042f7f8",
+      "reason": "Runtime-selected target from the six-entry relative switch at 0x0042f678; verified ELF table entry for selector 2"
+    },
+    {
+      "addr": "0x00197b6c",
+      "reason": "Runtime-observed target of bounded five-entry relative switch at 0x00197a64; verified in ELF."
+    },
+    {
+      "addr": "0x00197bbc",
+      "reason": "Case target of bounded five-entry relative switch at 0x00197a64; verified in ELF."
+    },
+    {
+      "addr": "0x00197c0c",
+      "reason": "Case target of bounded five-entry relative switch at 0x00197a64; verified in ELF."
+    },
+    {
+      "addr": "0x00197c1c",
+      "reason": "Case target of bounded five-entry relative switch at 0x00197a64; verified in ELF."
+    },
+    {
+      "addr": "0x00197c48",
+      "reason": "Case target of bounded five-entry relative switch at 0x00197a64; verified in ELF."
+    },
+    {
+      "addr": "0x002c5e78",
+      "reason": "Runtime-observed indirect target of switch at 0x002c4944; confirmed instruction boundary in EBOOT disassembly."
+    },
+    {
+      "addr": "0x002c5a7c",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1134 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c594c",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1004 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5ac8",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1180 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5998",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1050 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5cac",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1364 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c57ac",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xe64 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c4ed8",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x590 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6b48",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x2200 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c59e4",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x109c and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5db4",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x146c and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5e08",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x14c0 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6aa4",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x215c and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6e10",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x24c8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c64b8",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1b70 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c7130",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x27e8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c56c0",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xd78 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5714",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xdcc and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5760",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xe18 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5a38",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x10f0 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c58bc",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xf74 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5904",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xfbc and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c57e8",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xea0 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6af0",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x21a8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c71b4",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x286c and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6540",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1bf8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c716c",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x2824 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6dbc",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x2474 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c71f8",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x28b0 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c63d8",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1a90 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6988",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x2040 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6940",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1ff8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c69d0",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x2088 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6840",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1ef8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c68e0",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1f98 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6bb0",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x2268 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6c20",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x22d8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c55cc",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xc84 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c631c",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x19d4 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5d04",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x13bc and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c582c",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0xee4 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5b14",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x11cc and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6518",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1bd0 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6430",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1ae8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6584",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1c3c and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c5ee8",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x15a0 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6e70",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x2528 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c66ec",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1da4 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6cb4",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x236c and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6d54",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x240c and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c6240",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x18f8 and executable instruction boundary."
+    },
+    {
+      "addr": "0x002c66bc",
+      "reason": "Bounded 0x53-entry relative switch target at 0x002c4944; verified table entry 0x1d74 and executable instruction boundary."
+    },
+    {
+      "addr": "0x000df980",
+      "reason": "Runtime-observed indirect-switch case selected by branch 0x000df8a8; verified instruction boundary and guest CTR=0x000df980"
+    },
+    {
+      "addr": "0x00402c98",
+      "reason": "Case 0 target from bounded relative switch at 0x00402bdc; verified table word 0x000000b8 against runtime base 0x00402be0"
+    },
+    {
+      "addr": "0x00402cec",
+      "reason": "Case 1 target from bounded relative switch at 0x00402bdc; verified table word 0x0000010c against runtime base 0x00402be0"
+    },
+    {
+      "addr": "0x00402eb4",
+      "reason": "Case 2 target from bounded relative switch at 0x00402bdc; verified table word 0x000002d4 against runtime base 0x00402be0"
+    },
+    {
+      "addr": "0x00402e54",
+      "reason": "Case 3 target from bounded relative switch at 0x00402bdc; verified table word 0x00000274 against runtime base 0x00402be0"
+    },
+    {
+      "addr": "0x00402df4",
+      "reason": "Case 4 target from bounded relative switch at 0x00402bdc; verified table word 0x00000214 against runtime base 0x00402be0"
+    },
+    {
+      "addr": "0x00402d94",
+      "reason": "Case 5 target from bounded relative switch at 0x00402bdc; verified table word 0x000001b4 against runtime base 0x00402be0"
+    },
+    {
+      "addr": "0x00402d34",
+      "reason": "Case 6 target from bounded relative switch at 0x00402bdc; verified table word 0x00000154 against runtime base 0x00402be0 and guest CTR=0x00402d34"
+    },
+    {
+      "addr": "0x00402c00",
+      "reason": "Case 7 target from bounded relative switch at 0x00402bdc; verified table word 0x00000020 against runtime base 0x00402be0"
+    },
+    {
+      "addr": "0x0052e500",
+      "reason": "Case 0 target from five-entry relative switch at 0x0052e4e8; table word 0x14 from base 0x0052e4ec, confirmed by runtime target"
+    },
+    {
+      "addr": "0x0052e644",
+      "reason": "Case 1 target from five-entry relative switch at 0x0052e4e8; table word 0x158 from base 0x0052e4ec"
+    },
+    {
+      "addr": "0x0052e654",
+      "reason": "Case 2 target from five-entry relative switch at 0x0052e4e8; table word 0x168 from base 0x0052e4ec"
+    },
+    {
+      "addr": "0x0052e664",
+      "reason": "Case 3 target from five-entry relative switch at 0x0052e4e8; table word 0x178 from base 0x0052e4ec"
+    },
+    {
+      "addr": "0x0052e674",
+      "reason": "Case 4 target from five-entry relative switch at 0x0052e4e8; table word 0x188 from base 0x0052e4ec"
+    },
+    {
+      "addr": "0x00523fb8",
+      "reason": "Existing save-DLC PPU override entry; verified at the instruction boundary in IDA"
+    },
+    {
+      "addr": "0x002bc734",
+      "reason": "Existing HUD PPU override entry; verified at the instruction boundary in IDA"
+    },
+    {
+      "addr": "0x002f6c84",
+      "reason": "Existing HUD PPU override entry; verified at the instruction boundary in IDA"
+    },
+    {
+      "addr": "0x00306724",
+      "reason": "Existing HUD PPU override entry; verified at the instruction boundary in IDA"
+    },
+    {
+      "addr": "0x003cd424",
+      "reason": "Existing HUD PPU override entry; verified at the instruction boundary in IDA"
+    },
+    {
+      "addr": "0x003048e4",
+      "reason": "Existing HUD PPU override entry; verified at the instruction boundary in IDA"
+    }
+  ]
+}

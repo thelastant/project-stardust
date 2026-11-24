@@ -1,0 +1,64 @@
+#pragma once
+
+// Host copy of the RSX method register file plus the vertex program ucode and constant stores.
+// Behaviour follows RPCS3 `Emu/RSX/NV47/HW/nv4097.cpp` (`set_transform_program`,
+// `set_transform_constant`), `Emu/RSX/rsx_methods.h` (`rsx_state`) and `Emu/RSX/rsx_methods.cpp`
+// (`rsx_state::init`). Not thread safe; the RSX consumer owns it and uses it under the kernel lock.
+
+#include <array>
+#include <cstdint>
+
+namespace sshd {
+
+inline constexpr std::uint32_t kRsxVpInstructionCount = 544;  // RPCS3 max_vertex_program_instructions
+inline constexpr std::uint32_t kRsxVpConstantCount = 468;     // vec4 slots, RPCS3 `set_transform_constant::impl`
+
+inline constexpr std::uint32_t kRsxTransformWindow = 32;  // registers per TRANSFORM_PROGRAM / TRANSFORM_CONSTANT block
+
+struct RsxRegisters {
+    std::array<std::uint32_t, 0x4000> regs{};                           // by method >> 2
+    std::array<std::uint32_t, kRsxVpInstructionCount * 4> vp_ucode{};   // BE-decoded words
+    std::array<std::uint32_t, kRsxVpConstantCount * 4> vp_constants{};  // raw float bits
+    // Mirrors of regs[] for the three registers the loader reads; kept in sync by apply().
+    std::uint32_t vp_load = 0, vp_start = 0, constant_load = 0;
+    // Bit n: slot n of the SET_VERTEX_DATA*_M default attribute registers has been written since init.
+    // RPCS3 keeps these in `register_vertex_info`, cleared by `rsx_state::init` only, so contextReset()
+    // leaves the mask alone. A slot that was never written reads as (0, 0, 0, 1).
+    std::uint32_t vertex_default_written = 0;
+
+    // Applies one completed write. TRANSFORM_PROGRAM words land at vp_load * 4 + (slot % 4) and vp_load
+    // advances after each fourth word. TRANSFORM_CONSTANT words land at
+    // (constant_load + slot / 4) * 4 + slot % 4; constant_load itself never advances (RPCS3 only ever
+    // changes it through a write). Writes past the end of either store are dropped. All SET_VERTEX_DATA*_M
+    // immediate forms (1F, 2F, 3F, 4F, 2S, 4UB, 4S, SCALED4S) land in the 4F register block as floats (the
+    // components written, the others (0, 0, 0, 1) as RPCS3's register_vertex_info defaults) and set the written
+    // bit of the slot. The integer forms are converted with RPCS3's fetch scaling.
+    void apply(std::uint32_t method, std::uint32_t value);
+    std::uint32_t reg(std::uint32_t method) const { return regs[(method >> 2) & 0x3FFF]; }
+    void reset();  // RPCS3 `rsx_state::init` defaults
+    // RPCS3 `rsx_state::reset`, run at every flip: overwrites the registers it assigns (zeros included)
+    // and leaves all others, the vertex program store and constants, and the load pointers alone.
+    void contextReset();
+
+    // Names of the current contents of vp_ucode and vp_constants. Equal non-zero names, from any RsxRegisters in the
+    // process, mean equal contents, so consumers may key caches on them. apply() and reset() set a name to 0 when
+    // they change the store; the accessor names the contents on first use from a process-wide counter. A copy keeps
+    // the names, which stays correct because it holds the same contents. Code that writes vp_ucode or vp_constants
+    // directly must call markVpStoresChanged() afterwards.
+    std::uint64_t vpUcodeGeneration() const;
+    std::uint64_t vpConstantsGeneration() const;
+    void markVpStoresChanged();
+    mutable std::uint64_t vp_ucode_generation = 0, vp_constants_generation = 0;
+
+    // Lets a consumer holding a copy of vp_constants refresh only what changed: while vp_constants_base is non-zero,
+    // vp_constants differs from the contents that carried that name only within words
+    // [vp_constants_dirty_begin, vp_constants_dirty_end). apply() moves the base to the current name when it changes a
+    // named store; markVpStoresChanged() and reset() clear it, so a consumer then copies everything.
+    std::uint64_t vp_constants_base = 0;
+    std::uint32_t vp_constants_dirty_begin = 0, vp_constants_dirty_end = 0;
+};
+
+// True for a method of one of the SET_VERTEX_DATA*_M blocks that apply() decodes into the 4F registers.
+bool rsxImmediateVertexMethod(std::uint32_t method);
+
+}  // namespace sshd

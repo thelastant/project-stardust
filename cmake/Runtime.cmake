@@ -1,0 +1,334 @@
+include_guard(GLOBAL)
+
+if(WIN32)
+  option(SSHD_RSX_WRITE_WATCH
+    "Skip re-hashing RSX textures whose guest pages had no write (OS write watch on the guest reservation)" ON)
+else()
+  # The write watch is a Windows memory API (MEM_WRITE_WATCH); other hosts re-hash every texture.
+  set(SSHD_RSX_WRITE_WATCH OFF CACHE BOOL
+    "Skip re-hashing RSX textures whose guest pages had no write (Windows only)" FORCE)
+endif()
+
+# spdlog is built as a static library rather than header-only: its sources then compile with the
+# project's default flags (no -Werror) and keep <windows.h> out of runtime translation units.
+# SPDLOG_USE_STD_FORMAT reuses the std::format the runtime already depends on instead of bundled fmt.
+function(sshd_runtime_add_spdlog)
+  if(NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/spdlog/CMakeLists.txt)
+    message(FATAL_ERROR
+      "SSHD: externals/spdlog is missing or empty. Run: git submodule update --init")
+  endif()
+  set(SPDLOG_USE_STD_FORMAT ON CACHE BOOL "" FORCE)
+  set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/externals/spdlog
+    ${CMAKE_BINARY_DIR}/externals/spdlog EXCLUDE_FROM_ALL)
+endfunction()
+
+# zlib and libpng are built from the submodules as static libraries, so their sources compile
+# with the project's default flags (no -Werror). libpng's CMake finds zlib through FindZLIB, which
+# only sees installed copies; the cache variables below point it at the zlib target built here.
+# Nothing is installed and nothing is fetched or generated at configure time: pnglibconf.h comes
+# from libpng's prebuilt copy instead of the awk-driven generator.
+function(sshd_runtime_add_libpng)
+  if(NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/zlib/CMakeLists.txt OR
+     NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/libpng/CMakeLists.txt)
+    message(FATAL_ERROR
+      "SSHD: externals/zlib or externals/libpng is missing or empty. Run: git submodule update --init")
+  endif()
+
+  set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)
+  set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/externals/zlib
+    ${CMAKE_BINARY_DIR}/externals/zlib EXCLUDE_FROM_ALL)
+  add_library(ZLIB::ZLIB ALIAS zlibstatic)
+  set(ZLIB_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/externals/zlib CACHE PATH "" FORCE)
+  set(ZLIB_LIBRARY zlibstatic CACHE STRING "" FORCE)
+
+  set(PNG_SHARED OFF CACHE BOOL "" FORCE)
+  set(PNG_STATIC ON CACHE BOOL "" FORCE)
+  set(PNG_FRAMEWORK OFF CACHE BOOL "" FORCE)
+  set(PNG_TESTS OFF CACHE BOOL "" FORCE)
+  set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
+  set(PNG_LIBCONF_HEADER
+    ${CMAKE_SOURCE_DIR}/externals/libpng/scripts/pnglibconf.h.prebuilt CACHE FILEPATH "" FORCE)
+  set(ld-version-script OFF CACHE BOOL "" FORCE)
+  set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/externals/libpng
+    ${CMAKE_BINARY_DIR}/externals/libpng EXCLUDE_FROM_ALL)
+endfunction()
+
+# yyjson is built as a static library from its own CMake, so its C sources compile with the
+# project's default flags (no -Werror). Tests, docs and install rules stay off. SYSTEM keeps its
+# header out of the warnings of the translation units that include it.
+function(sshd_runtime_add_yyjson)
+  if(NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/yyjson/CMakeLists.txt)
+    message(FATAL_ERROR
+      "SSHD: externals/yyjson is missing or empty. Run: git submodule update --init")
+  endif()
+  set(YYJSON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(YYJSON_BUILD_FUZZER OFF CACHE BOOL "" FORCE)
+  set(YYJSON_BUILD_MISC OFF CACHE BOOL "" FORCE)
+  set(YYJSON_BUILD_DOC OFF CACHE BOOL "" FORCE)
+  set(YYJSON_INSTALL OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/externals/yyjson
+    ${CMAKE_BINARY_DIR}/externals/yyjson EXCLUDE_FROM_ALL)
+  set_target_properties(yyjson PROPERTIES SYSTEM ON)
+endfunction()
+
+# xxHash is used header-only: XXH_INLINE_ALL compiles its functions into each translation unit that includes
+# xxhash.h, with the unit's own flags, so XXH3 picks its vector code path (AVX2 or NEON) from SSHD_ARCH_FLAGS.
+# Nothing is built or installed from the submodule; SYSTEM keeps its header out of our warnings.
+function(sshd_runtime_add_xxhash)
+  if(NOT EXISTS ${CMAKE_SOURCE_DIR}/externals/xxHash/xxhash.h)
+    message(FATAL_ERROR
+      "SSHD: externals/xxHash is missing or empty. Run: git submodule update --init")
+  endif()
+  add_library(xxhash INTERFACE)
+  target_include_directories(xxhash SYSTEM INTERFACE ${CMAKE_SOURCE_DIR}/externals/xxHash)
+  target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
+endfunction()
+
+# Host crypto (AES, AES-CMAC, HMAC-SHA1, SHA-256) on the OS's own library: CNG on Windows,
+# CommonCrypto (part of libSystem, nothing to link) on macOS. Independent of the runtime core.
+# Call after enable_testing().
+function(sshd_crypto_add)
+  if(WIN32)
+    set(crypto_provider runtime/src/crypto/host_crypto_bcrypt.cpp)
+  elseif(APPLE)
+    set(crypto_provider runtime/src/crypto/host_crypto_commoncrypto.cpp)
+  else()
+    message(FATAL_ERROR "SSHD: no host crypto provider for this platform")
+  endif()
+  add_library(sshd_crypto STATIC ${crypto_provider})
+  target_compile_options(sshd_crypto PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_include_directories(sshd_crypto PUBLIC ${CMAKE_SOURCE_DIR}/runtime/src)
+  if(WIN32)
+    target_link_libraries(sshd_crypto PRIVATE bcrypt)
+  endif()
+
+  add_executable(sshd_crypto_tests runtime/tests/crypto_test.cpp)
+  target_compile_options(sshd_crypto_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_crypto_tests PRIVATE sshd_crypto)
+
+  add_test(NAME crypto_core COMMAND sshd_crypto_tests)
+  set_tests_properties(crypto_core PROPERTIES
+    PASS_REGULAR_EXPRESSION "crypto tests: [0-9]+ passed, 0 failed")
+endfunction()
+
+# Runtime core: everything that does not reference generated symbols, so it builds and its tests
+# run without a generated tree. Call after enable_testing().
+function(sshd_runtime_add_core)
+  sshd_crypto_add()
+  if(WIN32)
+    set(host_memory_provider runtime/src/core/host_memory_win32.cpp)
+  elseif(APPLE)
+    set(host_memory_provider runtime/src/core/host_memory_posix.cpp)
+  else()
+    message(FATAL_ERROR "SSHD: no host memory provider for this platform")
+  endif()
+  if(WIN32)
+    set(host_file_provider runtime/src/core/host_file_win32.cpp)
+  else()
+    set(host_file_provider runtime/src/core/host_file_posix.cpp)
+  endif()
+  if(WIN32)
+    set(timer_resolution_provider runtime/src/core/timer_resolution.cpp)
+  else()
+    set(timer_resolution_provider runtime/src/core/timer_resolution_posix.cpp)
+  endif()
+  sshd_runtime_add_spdlog()
+  sshd_runtime_add_libpng()
+  sshd_runtime_add_yyjson()
+  sshd_runtime_add_xxhash()
+
+  add_library(sshd_runtime_core STATIC
+    runtime/src/app/config_file.cpp
+    runtime/src/app/game_options.cpp
+    runtime/src/app/settings_store.cpp
+    runtime/src/audio/audio_engine.cpp
+    runtime/src/audio/audio_output.cpp
+    runtime/src/audio/wav_file.cpp
+    runtime/src/core/boot.cpp
+    runtime/src/core/census.cpp
+    runtime/src/core/cpu_hooks.cpp
+    runtime/src/core/dispatch.cpp
+    runtime/src/core/elf_loader.cpp
+    runtime/src/core/event_history.cpp
+    runtime/src/core/fatal.cpp
+    runtime/src/core/guest_dump.cpp
+    runtime/src/core/guest_memory.cpp
+    ${host_file_provider}
+    ${host_memory_provider}
+    runtime/src/core/host_priority.cpp
+    runtime/src/core/latency_stats.cpp
+    runtime/src/core/log.cpp
+    runtime/src/core/param_sfo.cpp
+    runtime/src/core/perf_log.cpp
+    runtime/src/core/png_image.cpp
+    runtime/src/core/reservation.cpp
+    runtime/src/core/thread_cpu.cpp
+    runtime/src/core/threads.cpp
+    ${timer_resolution_provider}
+    runtime/src/hle/cell_atrac.cpp
+    runtime/src/hle/cell_atrac_stream.cpp
+    runtime/src/hle/cell_audio.cpp
+    runtime/src/hle/cell_audio_ports.cpp
+    runtime/src/hle/cell_net_ctl.cpp
+    runtime/src/hle/cell_fs.cpp
+    runtime/src/hle/cell_game.cpp
+    runtime/src/hle/cell_gcm_sys.cpp
+    runtime/src/hle/cell_kb.cpp
+    runtime/src/hle/cell_msg_dialog.cpp
+    runtime/src/hle/cell_pad.cpp
+    runtime/src/hle/cell_pamf.cpp
+    runtime/src/hle/cell_png_dec.cpp
+    runtime/src/hle/cell_rtc.cpp
+    runtime/src/hle/cell_sail_adapters.cpp
+    runtime/src/hle/cell_sail_player.cpp
+    runtime/src/hle/cell_save_data.cpp
+    runtime/src/hle/cell_sysmodule.cpp
+    runtime/src/hle/cell_sysutil.cpp
+    runtime/src/hle/guest_printf.cpp
+    runtime/src/hle/hle.cpp
+    runtime/src/hle/libsre.cpp
+    runtime/src/hle/sail_service.cpp
+    runtime/src/hle/save_dialog.cpp
+    runtime/src/hle/save_dialog_model.cpp
+    runtime/src/hle/save_dialog_text.cpp
+    runtime/src/hle/sce_np.cpp
+    runtime/src/hle/sce_np_trophy.cpp
+    runtime/src/hle/sys_prx_for_user.cpp
+    runtime/src/hle/sys_prx_for_user_libc.cpp
+    runtime/src/input/gamepad_hub.cpp
+    runtime/src/input/gamepad_map.cpp
+    runtime/src/input/gamepad_probe.cpp
+    runtime/src/input/gamepad_select.cpp
+    runtime/src/input/keyboard_pad.cpp
+    runtime/src/input/mac_key_codes.cpp
+    runtime/src/input/pad_buttons.cpp
+    runtime/src/input/pad_script.cpp
+    runtime/src/lv2/sys_event.cpp
+    runtime/src/lv2/sys_fs.cpp
+    runtime/src/lv2/sys_misc.cpp
+    runtime/src/lv2/sys_mutex_cond.cpp
+    runtime/src/lv2/sys_ppu_thread.cpp
+    runtime/src/lv2/sys_semaphore.cpp
+    runtime/src/lv2/sys_spu.cpp
+    runtime/src/lv2/syscalls.cpp
+    runtime/src/lv2/vfs.cpp
+    runtime/src/lv2/vfs_config.cpp
+    runtime/src/media/at3_file.cpp
+    runtime/src/media/movie_player.cpp
+    runtime/src/media/pamf.cpp
+    runtime/src/rsx/fifo_parser.cpp
+    runtime/src/rsx/gcm_interrupts.cpp
+    runtime/src/rsx/rsx_capture.cpp
+    runtime/src/rsx/rsx_census.cpp
+    runtime/src/rsx/rsx_decode.cpp
+    runtime/src/rsx/rsx_frame_builder.cpp
+    runtime/src/rsx/rsx_hash_stream.cpp
+    runtime/src/rsx/rsx_registers.cpp
+    runtime/src/rsx/rsx_state.cpp
+    runtime/src/rsx/rsx_texture_cache.cpp
+    runtime/src/rsx/rsx_texture_layout.cpp
+    runtime/src/rsx/rsx_thread.cpp
+    runtime/src/rsx/rsx_unimplemented.cpp
+    runtime/src/spu/spu_capture.cpp
+    runtime/src/spu/spu_census.cpp
+    runtime/src/spu/spu_channels.cpp
+    runtime/src/spu/spu_dispatch.cpp
+    runtime/src/spu/spu_mfc.cpp
+    runtime/src/spu/spu_thread.cpp)
+  target_compile_options(sshd_runtime_core PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_include_directories(sshd_runtime_core PUBLIC
+    ${CMAKE_SOURCE_DIR}/runtime/src
+    ${CMAKE_SOURCE_DIR}/runtime/include)
+  # PRIVATE: the ELF loader, guest dumps and the SPU image registry hash with it.
+  target_link_libraries(sshd_runtime_core PRIVATE sshd_crypto)
+  if(WIN32)
+    # timeBeginPeriod (core/timer_resolution.cpp).
+    target_link_libraries(sshd_runtime_core PRIVATE winmm)
+    # WaitOnAddress / WakeByAddressAll (core/reservation.cpp).
+    target_link_libraries(sshd_runtime_core PRIVATE synchronization)
+  endif()
+  # PRIVATE: spdlog types stay out of core/log.h, so consumers never compile against its headers.
+  target_link_libraries(sshd_runtime_core PRIVATE spdlog::spdlog)
+  # PRIVATE as well: the PNG codec stays inside cell_png_dec.cpp.
+  target_link_libraries(sshd_runtime_core PRIVATE png_static)
+  # PRIVATE as well: JSON types stay inside config_file.cpp, vfs_config.cpp and rsx_census.cpp.
+  target_link_libraries(sshd_runtime_core PRIVATE yyjson)
+  # PRIVATE as well: xxhash.h stays out of the runtime headers.
+  target_link_libraries(sshd_runtime_core PRIVATE xxhash)
+  # PUBLIC and always 0 or 1: the layout of GuestMemory, RsxTextureCache::Entry and the RsxMemoryView vtable depends
+  # on it, so every translation unit that includes those headers must see the same value (core/build_config.h).
+  target_compile_definitions(sshd_runtime_core PUBLIC
+    SSHD_RSX_WRITE_WATCH=$<IF:$<BOOL:${SSHD_RSX_WRITE_WATCH}>,1,0>)
+
+  add_executable(sshd_runtime_tests runtime/tests/runtime_core_test.cpp)
+  target_compile_options(sshd_runtime_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  # The tests build their PNG inputs with libpng's writer.
+  target_link_libraries(sshd_runtime_tests PRIVATE sshd_runtime_core png_static)
+
+  add_test(NAME runtime_core COMMAND sshd_runtime_tests)
+  set_tests_properties(runtime_core PROPERTIES
+    PASS_REGULAR_EXPRESSION "runtime core tests: [0-9]+ passed, 0 failed")
+
+  # The movie pipeline's core needs no FFmpeg, so its tests link the core library only.
+  add_executable(sshd_media_core_tests runtime/tests/media_core_test.cpp)
+  target_compile_options(sshd_media_core_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_media_core_tests PRIVATE sshd_runtime_core)
+
+  add_test(NAME media_core COMMAND sshd_media_core_tests)
+  set_tests_properties(media_core PROPERTIES
+    PASS_REGULAR_EXPRESSION "media core tests: [0-9]+ passed, 0 failed")
+
+  add_executable(sshd_spu_runtime_tests runtime/tests/spu_runtime_test.cpp)
+  target_compile_options(sshd_spu_runtime_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_spu_runtime_tests PRIVATE sshd_runtime_core)
+
+  add_test(NAME spu_runtime COMMAND sshd_spu_runtime_tests)
+  set_tests_properties(spu_runtime PROPERTIES
+    PASS_REGULAR_EXPRESSION "spu runtime tests: [0-9]+ passed, 0 failed")
+
+  add_executable(sshd_game_options_tests runtime/tests/game_options_test.cpp)
+  target_compile_options(sshd_game_options_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_game_options_tests PRIVATE sshd_runtime_core)
+
+  add_test(NAME game_options COMMAND sshd_game_options_tests)
+  set_tests_properties(game_options PROPERTIES
+    PASS_REGULAR_EXPRESSION "game options tests: [0-9]+ passed, 0 failed")
+
+  add_executable(sshd_save_dialog_tests runtime/tests/save_dialog_test.cpp)
+  target_compile_options(sshd_save_dialog_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_save_dialog_tests PRIVATE sshd_runtime_core)
+
+  add_test(NAME save_dialog COMMAND sshd_save_dialog_tests)
+  set_tests_properties(save_dialog PROPERTIES
+    PASS_REGULAR_EXPRESSION "save dialog tests: [0-9]+ passed, 0 failed")
+
+  # The OS checks call Win32 directly and run on Windows only; the library is linked for the build configuration
+  # macro only.
+  add_executable(sshd_write_watch_tests runtime/tests/write_watch_test.cpp)
+  target_compile_options(sshd_write_watch_tests PRIVATE ${SSHD_ARCH_FLAGS} -Wall -Wextra)
+  target_link_libraries(sshd_write_watch_tests PRIVATE sshd_runtime_core)
+
+  if(WIN32)
+    add_test(NAME write_watch_os COMMAND sshd_write_watch_tests)
+    set_tests_properties(write_watch_os PROPERTIES
+      PASS_REGULAR_EXPRESSION "write watch tests: [0-9]+ passed, 0 failed")
+  endif()
+
+  # The test binary reports the value it was compiled with, so a build directory configured the other way fails here.
+  if(SSHD_RSX_WRITE_WATCH)
+    set(sshd_write_watch_config_regex "write watch config: on")
+  else()
+    set(sshd_write_watch_config_regex "write watch config: off")
+  endif()
+  add_test(NAME write_watch_config COMMAND sshd_write_watch_tests --config)
+  set_tests_properties(write_watch_config PROPERTIES
+    PASS_REGULAR_EXPRESSION "${sshd_write_watch_config_regex}")
+endfunction()

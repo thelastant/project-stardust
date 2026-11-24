@@ -1,0 +1,523 @@
+# Building
+
+The [top-level README](../README.md) shows the build steps. This page lists
+every parameter of the build scripts (`tools/build.ps1` on Windows, `tools/build.sh` on macOS), the CMake
+variables behind them, and the commands for the test runs. The Windows instructions come first;
+[Building on macOS](#building-on-macos) has the macOS ones.
+
+## `tools/build.ps1`
+
+```powershell
+pwsh -NoProfile -File tools/build.ps1 [-Preset debug|release|profile|release-wwoff] [-Clean] [-Test]
+     [-GeneratedDir <dir>] [-GameDir <dir>] [-EbootElf <path>] [-LlvmBin <dir>]
+     [-EbootBin <path>] [-Pup <path>] [-Rpcs3CryptoDir <dir>]
+```
+
+The script enters the Visual Studio developer shell itself unless it is already running in one,
+then configures, builds, and optionally runs CTest.
+
+| Parameter | Meaning |
+| --- | --- |
+| `-Preset debug\|release\|profile\|release-wwoff` | The CMake preset (default `debug`). Build output goes to `build/<preset>/`, executables to `build/<preset>/bin/`. `release` builds with `-O3` and no debug info; `profile` and `release-wwoff` are described below. |
+| `-Clean` | Delete `build/<preset>/` before configuring. This also deletes the default hdd directory `build/<preset>/hdd` (game data and saves). |
+| `-Test` | Run CTest after the build. Which tests run depends on the other parameters; see [Tests](tests.md). |
+| `-GeneratedDir <dir>` | The directory written by `ps3tool.py emit --out <dir>`. Compiles it into `sshd_ppu_generated` and `sshd_spu_generated` and builds `sshd_game` and the link tests. This game's executable is large, so it is emitted with `--chunks 256` and a full build compiles 256 generated C files; if the compiler runs out of memory, lower the parallelism with the `CMAKE_BUILD_PARALLEL_LEVEL` environment variable. Without it only the runtime libraries, tools and unit tests are built. The directory must hold the executable's `sources.cmake`, the libsre tree `<dir>/libsre/libsre_sources.cmake` (the second `emit` command in [Emitting C](emitter.md#a-prx-module-libsre)) and the SPU tree `<dir>/spu/spu_sources.cmake` (the `spu-emit` command in [Emitting C](emitter.md#spu-images)); if one is missing, configuration fails and prints the command to run. CMake variable `SSHD_PPU_GENERATED_DIR`. |
+| `-GameDir <dir>` | The game directory (the one that contains `PS3_GAME`). The `game_boot` test runs against it (it also needs `-EbootElf` or `-EbootBin`). With it, configuration also writes the starter `build/<preset>/bin/config.json` (see [The starter `config.json`](#the-starter-configjson)). CMake variable `SSHD_GAME_DIR`. |
+| `-EbootElf <path>` | The decrypted executable for the Python tests that read the real ELF and for the game tests. Not needed to build. When `-EbootBin` is given and this is not, it defaults to `generated/inputs/EBOOT.elf`, the file that `-EbootBin` produces. CMake variable `SSHD_EBOOT_ELF`. |
+| `-EbootBin <path>` | The disc's `PS3_GAME/USRDIR/EBOOT.BIN`. The build decrypts it into `generated/inputs/EBOOT.elf`; see [Decrypting the inputs](#decrypting-the-inputs). The file must exist. CMake variable `SSHD_EBOOT_BIN`. |
+| `-Pup <path>` | The firmware 4.93 `PS3UPDAT.PUP`. The build extracts `libsre.prx` from it into `generated/inputs/libsre.prx` and relocates it into `generated/inputs/libsre.reloc.elf`. It is required to play: `sshd_game` loads `libsre.reloc.elf`, the libsre emit step reads it, and `game_boot` is registered only with it. The file must exist. CMake variable `SSHD_PUP`. |
+| `-Rpcs3CryptoDir <dir>` | The `rpcs3/Crypto` directory of a local RPCS3 checkout, used for the keys instead of the download. The directory must exist. CMake variable `SSHD_RPCS3_CRYPTO_DIR`. |
+| `-LlvmBin <dir>` | Put this LLVM `bin` directory first on `PATH`. Defaults to the `SSHD_LLVM_BIN` environment variable. Use it when the clang bundled with Visual Studio is too old or clang is not on `PATH`. |
+
+Relative paths are resolved against the current directory. The parameters set CMake cache
+variables, so a later build of the same preset keeps them until they are given again.
+
+### The `release-wwoff` preset
+
+`release-wwoff` is `release` with `SSHD_RSX_WRITE_WATCH` set to `OFF` (see [CMake variables](#cmake-variables)),
+built into `build/release-wwoff/`. It is for comparing the two behaviours on the same tree, for example with
+`sshd_bench rsx-fifo` or `sshd_rsxreplay`; use `release` to play. Give it the same build-script parameters as
+`release`; its saves are in `build/release-wwoff/hdd`, so do not start the game from it unless a fresh hdd directory
+is wanted (`--hdd-dir` can name another build's directory).
+
+### The `profile` preset
+
+`profile` compiles the same code as `release` (`-O3`, and the same per-target options for the generated
+trees) and adds line tables (`-gline-tables-only -gcodeview`) and links with `/DEBUG`, so every executable
+and DLL gets a PDB written by the same link. A sampling profiler can then resolve function names, including
+static and inlined functions, which a `release` build cannot give. Output goes to `build/profile/`; the
+cache variables of the build script (`-GeneratedDir`, `-GameDir` and so on) are given to it separately.
+Its saves are in `build/profile/hdd`; `--hdd-dir` can name another build's directory instead. Do not use
+`profile` for play: the PDBs make the build directory larger and add nothing at run time.
+
+## Building on macOS
+
+The prerequisites are in the [README](../README.md#macos-apple-silicon). The build runs on Apple Silicon (arm64, 16 KiB
+pages) and uses Homebrew's clang and Homebrew's FFmpeg and the LunarG Vulkan SDK; the Windows presets and
+scripts are unchanged and cannot be used on a Mac. macOS 14.4 or newer is required: the SPU reservation
+waits use `os_sync_wait_on_address_with_timeout` (`runtime/src/core/reservation.cpp`).
+
+### Presets and toolchain
+
+| Preset | Build type | Output |
+| --- | --- | --- |
+| `macos-debug` | `Debug` | `build/macos-debug/`, executables in `build/macos-debug/bin/` |
+| `macos-release` | `Release` | `build/macos-release/`, executables in `build/macos-release/bin/` |
+
+Both are available only on a macOS host and use Ninja and `cmake/toolchains/macos-homebrew-llvm.cmake`.
+That file selects Homebrew's `clang` and `clang++` (also for the Objective-C++ files), `llvm-ar` and
+`llvm-ranlib`, and links against Homebrew's libc++ and libunwind, because the sources use C++26
+library features that the C++ library in the macOS SDK lacks. The LLVM prefix is the CMake variable
+or environment variable `SSHD_LLVM_PREFIX`, else `$(brew --prefix llvm)`; configuration stops with an
+install hint when no `bin/clang++` is found there. Apple's clang is refused by the compiler check
+(`cmake/CompilerChecks.cmake`). The binaries refer to Homebrew's libraries by path, so they run on the
+Mac that built them.
+
+All targets, the generated code included, are compiled with `-mcpu=apple-m1` on arm64 where the Windows
+build uses `-march=x86-64-v3`; configuration prints `SSHD: arch flags: -mcpu=apple-m1`. A platform other
+than Windows and macOS stops with `SSHD: unsupported platform`. The commands behind `tools/build.sh` are:
+
+```sh
+cmake --preset macos-debug
+cmake --build --preset macos-debug
+ctest --preset macos-debug
+```
+
+`macos-release` is the build to play with, like `release` on Windows; `macos-debug` is slower.
+
+### `tools/build.sh`
+
+```sh
+tools/build.sh [--preset <name>] [--clean] [--test]
+               [--generated-dir <dir>] [--game-dir <dir>] [--eboot-elf <path>]
+               [--eboot-bin <path>] [--pup <path>] [--rpcs3-crypto-dir <dir>] [--llvm-prefix <dir>]
+```
+
+It is a POSIX `sh` script that configures, builds and optionally runs CTest, with the parameters of
+`tools/build.ps1` in kebab case.
+
+| Parameter | Meaning |
+| --- | --- |
+| `--preset <name>` | The CMake preset. The default is `macos-debug` on macOS; on other systems the option is required. |
+| `--clean` | Delete `build/<preset>/` before configuring. This also deletes the default hdd directory `build/<preset>/hdd` (game data and saves). |
+| `--test` | Run CTest after the build (see [Tests](tests.md)). |
+| `--generated-dir <dir>`, `--game-dir <dir>`, `--eboot-elf <path>`, `--eboot-bin <path>`, `--pup <path>`, `--rpcs3-crypto-dir <dir>` | The same as `-GeneratedDir`, `-GameDir`, `-EbootElf`, `-EbootBin`, `-Pup` and `-Rpcs3CryptoDir` above, and they set the same CMake variables. The paths of `--eboot-elf`, `--eboot-bin`, `--pup` and `--rpcs3-crypto-dir` must exist. |
+| `--llvm-prefix <dir>` | The LLVM installation to use, exported as `SSHD_LLVM_PREFIX`. Defaults to the `SSHD_LLVM_PREFIX` environment variable, then to `$(brew --prefix llvm)`. |
+
+Relative paths are resolved against the current directory. The script prints the first line of
+`clang --version` of the LLVM it uses and, after the build, `build: N.N s`. Its exit code is the
+exit code of the command that failed, 1 for a failed check of the script itself and 2 for a usage
+error.
+
+The starter `config.json` (see [The starter `config.json`](#the-starter-configjson)) is written by the
+configure step on both systems, with the same rules; there is no separate script.
+
+### Decrypting and emitting on a Mac
+
+`sshd_decrypt` is built and used exactly as described under
+[Decrypting the inputs](#decrypting-the-inputs); only the AES, CMAC, HMAC and SHA code differs, as the macOS
+build uses CommonCrypto where Windows uses CNG (the library `sshd_crypto`; its test is `crypto_core`). The pins
+and the keys are the same. The full sequence:
+
+```sh
+tools/build.sh --preset macos-release --eboot-bin <game-dir>/PS3_GAME/USRDIR/EBOOT.BIN --pup <path>/PS3UPDAT.PUP
+python3 tools/ps3tool.py emit generated/inputs/EBOOT.elf --chunks 256 --out generated/ppu
+python3 tools/ps3tool.py emit generated/inputs/libsre.reloc.elf --db config/libsre_functions.json --symbol-prefix libsre --chunks 4 --out generated/ppu/libsre --max-unhandled 0
+python3 tools/ps3tool.py spu-emit --eboot generated/inputs/EBOOT.elf --libsre generated/inputs/libsre.reloc.elf --out generated/ppu/spu --max-unhandled 0
+tools/build.sh --preset macos-release --generated-dir generated/ppu --game-dir <game-dir>
+```
+
+Run the Python tools with `python3` 3.10 or newer; the `python3` that macOS provides (`/usr/bin/python3`) can be
+3.9, and the CMake configuration (which finds its own Python) does not tell you which one your shell uses.
+
+### Vulkan, shaderc and FFmpeg
+
+- **Loader.** `sshd_game` loads the Vulkan loader at run time. When the normal search fails (it does
+  when `DYLD_FALLBACK_LIBRARY_PATH` is set), it tries `/usr/local/lib/libvulkan.1.dylib`, then
+  `libvulkan.1.dylib` in the `lib` directory of the `VULKAN_SDK` that was set when CMake configured.
+- **Shaders.** The run-time shader compiler is `libshaderc_combined.a` with `include/shaderc/shaderc.hpp`.
+  Configuration takes them from `$VULKAN_SDK` when it is set and has them, else from `/usr/local`
+  (where the SDK's system-global install puts a copy) and prints `SSHD: shaderc: libshaderc_combined.a
+  from $VULKAN_SDK/lib` or `... from /usr/local/lib`. There is one archive for every configuration.
+- **Drivers.** The SDK installs two Vulkan drivers on top of Metal, KosmicKrisp and MoltenVK.
+  `sshd_game` uses MoltenVK when both are present (it is faster); `--vk-driver kosmickrisp` or the
+  `vk_driver` key selects KosmicKrisp. See [Rendering](rendering.md#vulkan-on-macos).
+- **FFmpeg.** The Homebrew installation in `SSHD_FFMPEG_DIR` (default `$(brew --prefix ffmpeg)`) must
+  hold `include/libavcodec/avcodec.h` and `lib/`. Configuration prints `SSHD: FFmpeg: <directory>`.
+  The headers are used at build time, and the directory of the libraries and the major version
+  numbers in their file names are compiled into `sshd_game`; build again after an upgrade that
+  changes a major version. Nothing is copied and nothing is pinned or checked (see
+  [Movies](movies.md#ffmpeg-on-macos)). `tools/fetch-ffmpeg.sh [--from <zip>] [--force]` is the
+  POSIX version of `tools/fetch-ffmpeg.ps1`: it fetches the pinned Windows build, which the macOS
+  build does not use.
+
+### Running and debugging on a Mac
+
+- **Event loop.** AppKit must be used from the main thread. `sshd_game` therefore runs the Cocoa
+  event loop on the main thread and the boot and the supervisor on a second thread
+  (`runWithHostEventLoop` in `runtime/src/render/vk_window.h`). The window, and the code that
+  creates or destroys it, belongs to the main thread; the controller notifications of
+  GameController.framework also arrive there. With `--no-window` the main thread runs a plain
+  `CFRunLoop` and the process never connects to the window server, so unattended runs and the game
+  tests work from an SSH session. The tests `render_window`, `audio_coreaudio` and
+  `input_gamecontroller` need a logged-in session or a device and skip themselves otherwise.
+- **Quitting.** `Cmd+Q`, the application menu's Quit and the close button end the run through the same
+  path (`sshd: stop: window closed`).
+- **lldb.** The runtime reserves the 4 GiB guest address space and finds out about guest accesses
+  to uncommitted memory from `SIGSEGV` and `SIGBUS` (macOS reports some protection faults as `SIGBUS`).
+  lldb stops on each of these as `EXC_BAD_ACCESS`. To let the runtime's handler run, tell lldb to pass
+  them on without stopping:
+
+  ```text
+  (lldb) process handle SIGSEGV SIGBUS -n true -p true -s false
+  ```
+
+  A real crash then still ends the run with a `sshd: stop: fatal ...` line and the call trace.
+- **Page size and guard pages.** The guest keeps 4 KiB logical pages, but the host page of an Apple
+  Silicon Mac is 16 KiB, and the host protects whole pages. A host page stays accessible while any
+  of its logical pages is committed. The 4 KiB guard page on each side of a guest thread stack, which
+  is uncommitted so that an overrun faults, therefore stays accessible when it shares its host page
+  with a live allocation, and a stray access there does not fault. Guest addresses and the other
+  behaviour of guest memory are the same as on Windows.
+- **No RSX write watch.** `SSHD_RSX_WRITE_WATCH` is forced to `OFF` on macOS, because the write watch
+  is a Windows API; every validated texture is hashed (see [Rendering](rendering.md#textures)).
+
+## CMake variables
+
+These can also be passed to `cmake` directly (`cmake --preset release -D<name>=<value>`, or
+`macos-release` on a Mac):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SSHD_PPU_GENERATED_DIR` | empty | Set by `-GeneratedDir`. |
+| `SSHD_GAME_DIR` | empty | Set by `-GameDir`. |
+| `SSHD_EBOOT_ELF` | empty | Set by `-EbootElf`. While it is empty and `SSHD_EBOOT_BIN` is set, configuration sets it to `generated/inputs/EBOOT.elf`. |
+| `SSHD_EBOOT_BIN` | empty | Set by `-EbootBin`. |
+| `SSHD_PUP` | empty | Set by `-Pup`. |
+| `SSHD_RPCS3_CRYPTO_DIR` | empty | Set by `-Rpcs3CryptoDir`. |
+| `SSHD_UI_FONT_FILE` | empty | A local `BIZUDPGothic-Regular.ttf` to use as the save dialog's fallback font instead of the download (see [Fallback UI font](#fallback-ui-font)). |
+| `SSHD_UI_FONT_URL_BASE` | the pinned raw GitHub URL | URL prefix the fallback font and its licence are downloaded from. Change it only to test the failure path. |
+| `SSHD_FFMPEG_DIR` | empty | An extracted FFmpeg build to use instead of `generated/deps/ffmpeg/<pinned build>` (see [Movies](movies.md); FFmpeg is used for ATRAC3plus decoding and by the inherited movie code). On macOS: the Homebrew prefix of FFmpeg to use instead of `$(brew --prefix ffmpeg)`. |
+| `SSHD_GAMEINPUT_DIR` | empty | Windows only. An extracted `Microsoft.GameInput` package to use instead of `generated/deps/gameinput/<pinned version>` (see [Input](input.md#the-gameinput-package)). Configure needs the package from `tools/fetch-gameinput.ps1`. |
+| `SSHD_LLVM_PREFIX` | `$(brew --prefix llvm)` | macOS only. The LLVM installation whose clang is used (a CMake variable or an environment variable); set by `--llvm-prefix`. |
+| `SSHD_ENABLE_DLSS` | `AUTO` | Windows only (`ON` is a configuration error elsewhere, and `AUTO` prints `SSHD: Streamline: off (Windows only)`). `AUTO`, `ON` or `OFF`: whether to build the DLAA anti-aliasing mode and frame generation on NVIDIA Streamline (see [NVIDIA Streamline (DLAA)](#nvidia-streamline-dlaa)). |
+| `SSHD_STREAMLINE_DIR` | `externals/Streamline` | The unpacked Streamline SDK to build against. |
+| `SSHD_RSX_WRITE_WATCH` | `ON` | Create the guest memory reservation with the Windows write watch (`MEM_WRITE_WATCH`) and let the RSX frame builder keep a cached texture, without hashing its bytes, when no page of its range was written since its last check (see the write tracking entry of the texture cache in [Rendering](rendering.md#textures)). `OFF` hashes every validated texture once per epoch, as before. The setting is compiled into every target through `sshd_runtime_core`, so change it only by reconfiguring a whole build directory. The write watch is a Windows API: on macOS the variable is forced to `OFF`, because a host with 16 KiB pages would need its own tracking. |
+| `SSHD_PPU_WERROR` | `ON` | Add `-Werror` for generated code and the code that mirrors it (header check, semantics harness, link test). Every such target is compiled with `-O1 -march=x86-64-v3 -ffp-contract=off -fpatchable-function-entry=8 -Wall -Wextra`, whatever the preset's optimization level (`-mcpu=apple-m1` replaces `-march=x86-64-v3` on macOS); the generated SPU tree and the SPU tests that run generated code (`spu_semantics`, `spu_programs`) use `-O3` instead of `-O1` (`SSHD_SPU_CODEGEN_OPT_LEVEL` in `cmake/SpuCodegen.cmake`), because the game's SPU decode loops run several times faster at that level. |
+| `SSHD_PGO_GENERATE` | `OFF` | Clang only. Instrument the whole build for LLVM profile-guided optimization. Set `LLVM_PROFILE_FILE` to a writable path containing `%p` before launching the game; the profile is explicitly flushed on normal runtime shutdown (the runtime exits with `_Exit`). Leave the game running through representative scenes, then close it normally. |
+| `SSHD_PGO_PROFILE` | empty | Clang only. Use a merged `.profdata` profile during compilation. Mutually exclusive with `SSHD_PGO_GENERATE`; the profile must exist at configure time. |
+
+No tracked file contains a game path: they are command-line arguments, CMake cache variables, a
+user-local VFS configuration (`config/vfs.example.json` shows the format with placeholders) or the
+git-ignored `build/<preset>/bin/config.json` below.
+
+### LLVM profile-guided optimization
+
+The generated PPU code is the measured bottleneck for this title; changing `-O1` to `-O2` or `-O3`
+did not improve the startup workload. Configure a separate training tree, supplying the same game and
+generated inputs used by the normal build:
+
+```powershell
+pwsh -NoProfile -File tools/pgo.ps1 -GeneratedDir .\generated\ppu -GameDir C:\path\to\game
+```
+
+The script configures/builds the instrumented game, launches it without a `--seconds` limit, waits for
+you to close it, merges only that run's profile, and configures/builds the optimized executable. It
+infers `libsre.reloc.elf` from the generated tree; pass `-Libsre` if it is elsewhere. You can provide
+`-PadScript` for repeatable inputs. Close the game normally so its profile is flushed. The generated
+profile and both build trees are retained for review.
+
+For manual builds, merge a training run's `.profraw` files, then configure and build the PGO-use tree:
+
+```powershell
+$LlvmProfdata = "C:\Program Files\LLVM\bin\llvm-profdata.exe"
+& $LlvmProfdata merge -output=build/sshd.profdata build/pgo-generate/profiles/*.profraw
+cmake --preset pgo-use "-DSSHD_PPU_GENERATED_DIR=$PWD/generated/ppu" "-DSSHD_GAME_DIR=$GameDir" "-DSSHD_PGO_PROFILE=$PWD/build/sshd.profdata"
+cmake --build --preset pgo-use --target sshd_game --parallel 8
+```
+
+Keep the PGO build only if a matched workload improves; profile instrumentation itself is slower and
+should not be used for play.
+
+## The starter `config.json`
+
+When `SSHD_GAME_DIR` is set (`-GameDir`) and `sshd_game` is built (`-GeneratedDir`), configuration
+writes `build/<preset>/bin/config.json`, the file `sshd_game` reads when it is started without
+`--config` or `--no-config` (see [`sshd_game` options](runtime-options.md)). The executable can then
+be started from any working directory without arguments. The file holds:
+
+| Key | Value | Written when |
+| --- | --- | --- |
+| `game_dir` | `SSHD_GAME_DIR` | always (nothing is written without it) |
+| `elf` | `SSHD_EBOOT_ELF`: the file `-EbootElf` names, or `generated/inputs/EBOOT.elf` from `-EbootBin` | the variable is set |
+| `libsre` | `generated/inputs/libsre.reloc.elf` | `-Pup` (`--pup`) is given |
+
+`hdd_dir` is not written: the default `build/<preset>/hdd` is the directory the README describes. A
+path inside the repository or the build directory is stored relative to `bin/`, any other path is
+absolute (the file is git-ignored and machine-local).
+
+The file is written at configuration, which also covers `cmake --preset <preset>` without the script. On macOS
+`tools/build.sh` passes the same variables (`--game-dir`, `--eboot-elf`, `--pup`), and the file is written next to
+`build/macos-release/bin/sshd_game` under the same rules.
+An existing file is never changed, so hand edits and settings the game saved survive; if its
+`game_dir`, `elf` or `libsre` differ from the build's, configuration prints one line naming them. To
+get a new starter file, delete the old one and configure again. The `game_boot` test passes
+`--no-config`, so the file does not affect the tests.
+
+## Decrypting the inputs
+
+`sshd_decrypt` turns two files you own into the decrypted inputs of this project, with no RPCS3
+install. It is configured by `-EbootBin` and `-Pup`. With neither, configuration prints
+`SSHD: input decryption not configured`, uses no network, and the build contains only the tool and
+its unit tests.
+
+```powershell
+pwsh -NoProfile -File tools/build.ps1 -Preset release -EbootBin <game-dir>/PS3_GAME/USRDIR/EBOOT.BIN -Pup <path>/PS3UPDAT.PUP
+```
+
+The build target `sshd_inputs` runs the tool and writes the outputs to `generated/inputs/` (shared by
+both presets, never into the game directory):
+
+| Output | From | Written when |
+| --- | --- | --- |
+| `generated/inputs/EBOOT.elf` | The decrypted `EBOOT.BIN` | `-EbootBin` is given |
+| `generated/inputs/libsre.prx` | `dev_flash/sys/external/libsre.sprx`, extracted from the PUP and decrypted | `-Pup` is given |
+| `generated/inputs/libsre.reloc.elf` | `libsre.prx` placed at the guest address `0x02000000` with its relocations applied (`sshd_decrypt reloc`). `emit` and `recover` read it, and `sshd_game` loads it | `-Pup` is given |
+| `generated/inputs/SCE-PS3-SR-R-JPN.TTF` | `dev_flash/data/font/SCE-PS3-SR-R-JPN.TTF`, the firmware's Japanese system font, extracted from the PUP as stored (`sshd_decrypt pup --raw`). The save dialog draws its text with it | `-Pup` is given |
+
+Decryption runs at build time, not at configure time, and again only when an input file or the tool
+has changed. The produced `EBOOT.elf` is the default of `SSHD_EBOOT_ELF`, so `emit`, the Python
+real-executable tests and `game_boot` use it. The usual order is: build once with the two files, run
+the three emit commands (`ps3tool.py emit generated/inputs/EBOOT.elf --chunks 256 --out generated/ppu`,
+`ps3tool.py emit generated/inputs/libsre.reloc.elf --db config/libsre_functions.json --symbol-prefix libsre --chunks 4 --out generated/ppu/libsre --max-unhandled 0`
+and `ps3tool.py spu-emit --eboot generated/inputs/EBOOT.elf --libsre generated/inputs/libsre.reloc.elf --out generated/ppu/spu --max-unhandled 0`),
+then build again with `-GeneratedDir generated/ppu -GameDir <game-dir>`; the cache keeps the earlier
+parameters. The SPU function databases (`config/spu/`) are committed, so `spu-emit` needs no recovery run.
+
+### Keys
+
+No key is stored in this repository. With `-EbootBin` or `-Pup`, configuration downloads
+`key_vault.h` and `key_vault.cpp` from RPCS3 at commit `f9b8c209a3800c1865bcfeade611f65f5237138c`
+(`rpcs3/Crypto` in <https://github.com/RPCS3/rpcs3>) into `generated/deps/rpcs3/<commit>/`. Each
+download is checked against a SHA-256 pinned in `cmake/rpcs3_keys.cmake`:
+
+| File | SHA-256 |
+| --- | --- |
+| `key_vault.h` | `d5d0cede74c7900bb23ca8d60066194648ed4b976eaee60315c0bcbed7dc2aaf` |
+| `key_vault.cpp` | `a2947ff6b681258c198552ec6344e16685e2df649018206daa3f41a0a1aadbd7` |
+
+`sshd_decrypt` reads only the key constants from these files, as data. If the download fails,
+configuration stops with an error that names `SSHD_RPCS3_CRYPTO_DIR` and `-Rpcs3CryptoDir`. To build
+offline, point `-Rpcs3CryptoDir` (`SSHD_RPCS3_CRYPTO_DIR`) at the `rpcs3/Crypto` directory of a local
+RPCS3 checkout; it must hold both files. Their hashes are not enforced: configuration prints a line
+when one differs from the pin, and the output pins below catch a real problem.
+
+### What is checked
+
+- `EBOOT.BIN` must have the SHA-256 in the `eboot_bin` entry of `config/target.json`. A game-update
+  `EBOOT.BIN` or another title is refused before decryption.
+- For the PUP: the file layout, the HMAC of the two entries the tool reads (the version string and
+  the update packages), and the firmware version, which must equal the `firmware` of the
+  `libsre_prx` entry (`4.93`). A damaged or truncated download fails the HMAC check. A PUP of another
+  firmware version is refused by the pin; Sony publishes only the latest firmware, so a 4.93 PUP must
+  come from an earlier download. The tested file is 206197916 bytes with SHA-256
+  `158471fd834f8ea8036136b6aab43cd86c7ba73d79ca30e0af3c0fe0001cf365`; the hash of the PUP itself is
+  not enforced.
+- For `libsre.reloc.elf`: the input `libsre.prx` must match the `libsre_prx` pin, and the base
+  address (`0x02000000`, a multiple of 64 KiB) comes from the `libsre_reloc_elf` entry. Every
+  relocation record must apply to bytes that equal the value for the unrelocated, pre-linked file,
+  and an unknown relocation type is an error.
+- The output: its size and SHA-256 must match the `eboot_elf`, `libsre_prx`, `libsre_reloc_elf` or
+  `jpn_font` entry of `config/target.json`. On a mismatch the tool prints both values and writes nothing, and an existing
+  output file stays as it was. A match is written as `<name>.part` and then renamed.
+
+NPDRM SELFs, debug SELFs and 32-bit (SPU) SELFs are refused with an error.
+
+### The tool
+
+`sshd_decrypt` has four commands. The build runs `self`, `pup` (twice) and `reloc` with the pins read from
+`config/target.json`; running `sshd_decrypt` without arguments prints the usage text and exits with 2.
+
+```text
+sshd_decrypt self --keys DIR --in EBOOT.BIN --out EBOOT.elf --expect-size N --expect-sha256 HEX
+                  [--expect-input-sha256 HEX]
+sshd_decrypt pup  --keys DIR --in PS3UPDAT.PUP --path PATH --firmware VERSION --out libsre.prx
+                  --expect-size N --expect-sha256 HEX [--raw]
+sshd_decrypt reloc --in libsre.prx --base 0xADDR --out libsre.reloc.elf --expect-size N
+                  --expect-sha256 HEX [--expect-input-sha256 HEX]
+sshd_decrypt keys --keys DIR
+```
+
+`--keys` is the directory with `key_vault.h` and `key_vault.cpp`. `pup` finds the file `PATH` (the
+build uses `dev_flash/sys/external/libsre.sprx`) in the `dev_flash_*` packages of the PUP. `--raw`
+(a flag without a value) writes the extracted file as stored, with no SELF decryption, and applies the
+same size and SHA-256 check; the build uses it for the font, which is a plain TrueType file. `keys`
+prints how many keys of each type were read, never the keys. `reloc` needs no keys: it reads the
+unrelocated `libsre.prx`, applies the relocations for the base `--base` (`0x`-prefixed hexadecimal, a
+multiple of `0x10000`; the build passes the pinned `0x02000000`) and prints
+`relocated: <n> relocations (ADDR32 <a>, ADDR16_LO <b>, ADDR16_HI <c>, ADDR16_HA <d>), image <begin>..<end>`
+before the pin check. A successful `self`, `pup` or `reloc` prints
+`<name>: <size> bytes, sha256 <hex>: matches the pin`. Every error is one line that starts with
+`error: `, and no key bytes appear in any output. The exit code is 0 on success, 1 on a failure and 2
+on a usage error. The tests `decrypt_core`, `decrypt_eboot`, `decrypt_libsre`, `decrypt_libsre_reloc` and `decrypt_font` are listed in
+[Tests](tests.md).
+
+## What gets built
+
+The runtime core (`sshd_runtime_core`: `runtime/src/core`, `lv2`, `hle`, `input`, `rsx`, `audio`
+without the WASAPI and CoreAudio outputs, and the PAMF demuxer, movie player and ATRAC3plus file parser in `runtime/src/media`, the first two unused by this game)
+does not reference generated symbols and is always built, together with its unit tests. Next to it are the
+host crypto library `sshd_crypto` (CNG or CommonCrypto), the shared device-thread code of the audio outputs
+`sshd_audio_stream`, and the platform libraries: on Windows `sshd_audio_wasapi`, `sshd_input_gameinput` and
+`sshd_padtool`; on macOS `sshd_audio_coreaudio` and `sshd_input_gamecontroller`. The renderer
+(`sshd_render`, `runtime/src/render`) is a separate library on top of it, so the core itself needs no
+GPU. `sshd_game` is built only with `-GeneratedDir`, because only `runtime/src/game_main.cpp` passes
+the generated tables to the core. It checks the executable against the SHA-256 that the generated
+code was emitted from.
+
+`sshd_decrypt` (with its library and the unit tests `sshd_decrypt_tests`) is always built. `sshd_inputs`,
+the target that writes `generated/inputs`, exists only with `-EbootBin` or `-Pup`. The generated code
+of the executable and of libsre are compiled together into `sshd_ppu_generated`, and the generated SPU code
+of the game and of libsre into `sshd_spu_generated`. The stub runtimes `sshd_ppu_stub` and `sshd_spu_stub`
+supply the hooks for the link checks and the header and semantics tests; `sshd_game` links the runtime core instead.
+
+## Fallback UI font
+
+The save dialog draws its text with the firmware's Japanese font when `-Pup` is given (see
+[Decrypting the inputs](#decrypting-the-inputs)). Without the PUP it falls back to BIZ UDPGothic Regular
+(SIL Open Font License 1.1, <https://github.com/googlefonts/morisawa-biz-ud-gothic>). Configuration downloads
+`fonts/ttf/BIZUDPGothic-Regular.ttf` and `OFL.txt` from commit `18934af56b9c003ca58c54bffbf226848cb11032`
+into `generated/deps/fonts/<commit>/` and checks their SHA-256 (the pins are in `cmake/ui_font.cmake`):
+
+| File | SHA-256 |
+| --- | --- |
+| `BIZUDPGothic-Regular.ttf` | `258d7156c165f2ff774b6efee637c22c3b950de0d8a10e501137061bc8085d01` |
+| `OFL.txt` | `e753d7155d53c747d037a445e584c8ecfca6dd79846db610417e282a736b28bc` |
+
+The ALL target `sshd_ui_fonts` copies the font to `build/<preset>/bin/fonts/` and the licence to
+`build/<preset>/bin/licenses/biz-udgothic/OFL.txt`. Unlike the keys, the font is optional: a failed
+download, or a file whose hash differs from the pin, prints one `SSHD: warning:` line, configuration goes on and
+`sshd_ui_fonts` is not created. Without any font the save dialog uses ImGui's default font, which has no
+Japanese glyphs, so they show as `?`.
+
+To build offline, put `BIZUDPGothic-Regular.ttf` and `OFL.txt` with the pinned hashes into
+`generated/deps/fonts/<commit>/` before configuring, or set `SSHD_UI_FONT_FILE` to a local
+`BIZUDPGothic-Regular.ttf`. A file given that way is used even if its hash differs from the pin (configuration
+prints a line); its licence text is still taken from the pinned `OFL.txt` when that can be had.
+
+## NVIDIA Streamline (DLAA)
+
+The `dlaa` anti-aliasing mode (`--aa-mode dlaa`, see [DLAA](rendering.md#dlaa)) runs NVIDIA
+DLSS in its DLAA mode through the NVIDIA Streamline SDK. This section is Windows only: the macOS build never uses
+Streamline, and DLAA and frame generation are unavailable there. The SDK is optional and is not part of the
+repository. Without it the build succeeds, DLAA is compiled out and a requested `dlaa` falls back to `msaa`. The same SDK
+provides DLSS Frame Generation and NVIDIA Reflex, which `--frame-gen` uses (see
+[Frame generation](rendering.md#frame-generation)); it has no build option of its own. In a build without the SDK the option is still accepted, and frame generation is
+unavailable (one warning when a target is requested).
+
+```powershell
+pwsh -NoProfile -File tools/fetch-streamline.ps1 [-From <zip>] [-Force]
+```
+
+The script downloads the pinned release, `v2.14.1` (the version, file name and SHA-256 are in
+`cmake/streamline.cmake`), from <https://github.com/NVIDIA-RTX/Streamline/releases>, checks its SHA-256
+and extracts it into `externals/Streamline`, which is git-ignored. It writes
+`externals/Streamline/.verified-sha256` and prints `streamline: up to date` and does nothing when that marker
+already matches the pin. `-From <zip>` uses a local copy of the release zip instead of downloading it, with the
+same check, and `-Force` extracts again over a tree that is up to date. A tree without a matching marker, for
+example one unpacked by hand, is not replaced unless `-Force` or `-From` is given. The exit code is 0 on success, 1 on a failure and 2 on a
+usage error. It needs PowerShell 7.
+
+Configuration looks for the SDK in `SSHD_STREAMLINE_DIR` and prints one status line:
+
+| `SSHD_ENABLE_DLSS` | Result |
+| --- | --- |
+| `AUTO` (default) | With `include/sl.h` and the DLLs below present: `SSHD: Streamline: <dir> (v2.14.1)`, plus `, not verified by tools/fetch-streamline.ps1` when the marker is missing or differs from the pin. Otherwise `SSHD: Streamline: not found (<dir>/include/sl.h); DLAA disabled. Run: pwsh -NoProfile -File tools/fetch-streamline.ps1`, and the build goes on without it. |
+| `ON` | As `AUTO`, but a missing SDK is a configuration error with the same hint. |
+| `OFF` | `SSHD: Streamline: off (SSHD_ENABLE_DLSS=OFF)`; the SDK is not used even when present. |
+
+With the SDK, the renderer is built with its headers (`SSHD_HAS_STREAMLINE=1`). Nothing is linked: the
+SDK's import library is not used, because it exports the Vulkan entry points that the renderer's function
+loader already defines. `sl.interposer.dll` is loaded at run time instead (see
+[DLAA](rendering.md#dlaa)). The build copies the DLLs next to the executables, in
+`bin/` of the build directory, by the target `sshd_streamline_runtime` (a dependency of `sshd_game`,
+`sshd_rsxreplay` and the render tests):
+
+| File | Source in the SDK |
+| --- | --- |
+| `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `nvngx_dlss.dll` | `bin/x64/` (the production DLLs, not `bin/x64/development`) |
+| `sl.dlss_g.dll` (DLSS Frame Generation), `nvngx_dlssg.dll` (its NGX runtime), `sl.reflex.dll` (NVIDIA Reflex) and `sl.pcl.dll` (PC latency markers) | `bin/x64/`, for frame generation |
+| `licenses/streamline/LICENSE.txt` | `license.txt` |
+| `licenses/streamline/nvngx_dlss.license.txt` | `bin/x64/` |
+| `licenses/streamline/3rd-party-licenses.md` | `3rd-party-licenses.md` |
+
+The four frame generation DLLs are copied only if they exist in the SDK; a missing one prints
+`SSHD: Streamline: frame generation DLLs missing (<names>)` at configuration, and frame generation is then unavailable
+at run time while DLAA is not affected. Streamline loads `sl.pcl.dll` whenever it is next to the executable, also in
+runs without a window and in the tests. `-DSSHD_ENABLE_DLSS=OFF` builds without any of these DLLs.
+
+`NvLowLatencyVk.dll` (Reflex), which `sl.common.dll` tries to load at start-up, is not copied: its licence
+does not list it as distributable. Streamline uses `VK_NV_low_latency2` for Reflex on Vulkan instead, so frame
+generation works without it; the load failure is logged at debug level.
+Streamline's own signature check still prints `File '...NvLowLatencyVk.dll' is NOT correctly signed` to
+standard output, which only means the file is absent. The licences of these files, which must accompany
+a redistributed copy, are listed in [Third-party notices](../THIRD_PARTY_NOTICES.md). At run time DLAA is
+off, with one log line that gives the reason, when the DLLs are missing or not signed by NVIDIA, or the GPU
+is not an RTX GPU that supports DLSS, or the driver is too old. Frame generation is off, with the reason in the
+start-up log, when its DLLs are missing, the GPU is not an RTX 40 or 50 series GPU, the driver or Windows is too old,
+hardware-accelerated GPU scheduling is off, the device has no `VK_NV_low_latency2`, or there is no window.
+
+The DLAA tests print a skip line instead of failing when DLAA is unavailable. To check the build without the
+SDK, configure a second build directory with `-DSSHD_ENABLE_DLSS=OFF`.
+
+## Test builds
+
+Unit tests only (no game files needed):
+
+```powershell
+pwsh -NoProfile -File tools/build.ps1 -Preset debug -Clean -Test
+```
+
+Unit tests plus the Python tests that read the real executable:
+
+```powershell
+pwsh -NoProfile -File tools/build.ps1 -Preset release -EbootBin <game-dir>/PS3_GAME/USRDIR/EBOOT.BIN -Pup <path>/PS3UPDAT.PUP -Test
+```
+
+This also runs `decrypt_eboot`, `decrypt_libsre`, `decrypt_libsre_reloc` and `decrypt_font`, and the Python tests that
+read the real `libsre.reloc.elf`. With an `EBOOT.elf` that you already have,
+`-EbootElf <path-to-EBOOT.elf>` replaces `-EbootBin` and `-Pup`.
+
+These tests expect the values of the pinned SSHD executable (see [Tests](tests.md)).
+
+Generated code and the game run (`game_boot`, which needs `-Pup` because the run loads libsre; the
+earlier `-Pup` stays in the cache):
+
+```powershell
+pwsh -NoProfile -File tools/build.ps1 -Preset release -GeneratedDir generated/ppu -EbootBin <game-dir>/PS3_GAME/USRDIR/EBOOT.BIN -Pup <path>/PS3UPDAT.PUP -GameDir <game-dir> -Test
+```
+
+On macOS the same builds are:
+
+```sh
+tools/build.sh --preset macos-debug --clean --test
+tools/build.sh --preset macos-release --eboot-bin <game-dir>/PS3_GAME/USRDIR/EBOOT.BIN --pup <path>/PS3UPDAT.PUP --test
+tools/build.sh --preset macos-release --generated-dir generated/ppu --eboot-bin <game-dir>/PS3_GAME/USRDIR/EBOOT.BIN --pup <path>/PS3UPDAT.PUP --game-dir <game-dir> --test
+```
+
+`--eboot-elf <path-to-EBOOT.elf>` replaces `--eboot-bin` and `--pup` as on Windows.
+
+The full list of tests and the conditions under which each one is registered are in
+[Tests](tests.md).
+
+## Optional tools
+
+- Ghidra 12.x and a JDK 21, for `ps3tool.py ghidra-export` only (see
+  [Analysis tools](analysis-tools.md#ghidra-cross-check)). `recover` does not need Ghidra: it reads
+  the committed Ghidra summary, or runs with `--no-ghidra`.
+- git and a sparse checkout of the RPCS3 sources, for `ps3tool.py nidgen` only (see
+  [Analysis tools](analysis-tools.md#nid-and-syscall-name-tables)).
+- WSL with a distribution that has a C toolchain (Ubuntu-26.04 is the verified one), for
+  `ps3tool.py spu-objdump-diff` only. The `objdump` it runs is built by `tools/build-spu-objdump.sh` (see
+  [Analysis tools](analysis-tools.md#spu-decoder-cross-check-with-objdump)); no other command and no build
+  needs it.
