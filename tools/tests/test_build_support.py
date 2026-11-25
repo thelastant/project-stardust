@@ -37,7 +37,7 @@ class BuildSupportTests(unittest.TestCase):
             usrdir.mkdir(parents=True)
             eboot = usrdir / "EBOOT.ELF"
             eboot.write_bytes(b"")
-            self.assertEqual(build_support.detect_game_dir(eboot), root)
+            self.assertEqual(build_support.detect_game_dir(eboot), root.resolve())
 
     def test_prepares_npea_output_without_moving_source(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -52,9 +52,30 @@ class BuildSupportTests(unittest.TestCase):
 
             result = build_support.prepare_game_folder(game, output, eboot)
 
-            self.assertEqual(result, output)
+            self.assertEqual(result, output.resolve())
             self.assertEqual((output / "USRDIR" / "EBOOT.ELF").read_bytes(), b"selected")
             self.assertEqual((usrdir / "EBOOT.ELF").read_bytes(), b"original")
+
+    def test_prepares_artwork_from_npea_folder_for_executable_resources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game = root / "NPEA00014"
+            game.mkdir()
+            png = b"\x89PNG\r\n\x1a\n" + bytes(8) + (64).to_bytes(4, "big") + (64).to_bytes(4, "big") + b"image"
+            (game / "ICON0.PNG").write_bytes(png)
+            (game / "PIC0.PNG").write_bytes(png)
+            output = root / "delivery" / "NPEA00014"
+            output.mkdir(parents=True)
+            with patch.object(build_support, "ROOT", root):
+                icon, pic = build_support.prepare_game_artwork(game, output)
+
+            resource = root / "generated" / "setup-game-artwork"
+            self.assertEqual(icon.read_bytes(), png)
+            self.assertEqual(pic.read_bytes(), png)
+            rc = (resource / "game_artwork.rc").read_text(encoding="utf-8")
+            self.assertIn("IDI_ICON1 ICON", rc)
+            self.assertIn("PIC0_ARTWORK RCDATA", rc)
+            self.assertTrue((resource / "ICON0.ico").is_file())
 
 
 if __name__ == "__main__":

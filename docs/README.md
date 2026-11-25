@@ -8,7 +8,7 @@ parameter and describe how the project works:
 | [building.md](building.md) | Every `tools/build.ps1` and `tools/build.sh` parameter, the CMake variables, the macOS toolchain and the commands for test builds |
 | [runtime-options.md](runtime-options.md) | Every `sshd_game` option, exit codes and stop lines, and example runs by purpose |
 | [status.md](status.md) | How far a run gets and what is not implemented |
-| [getting-files.md](getting-files.md) | Input requirements and how the setup handles user-supplied files |
+| [getting-files.md](getting-files.md) | Input requirements and how the command-line builder handles user-supplied files |
 | [privacy.md](privacy.md) | Local processing, generated files, and network activity |
 | [troubleshooting.md](troubleshooting.md) | Common setup and build failures |
 | [release-criteria.md](release-criteria.md) | Checks required before a public release |

@@ -56,6 +56,11 @@ def build(eboot: Path, pup: Path) -> tuple[Path, Path | None]:
 
     print("\n[Preparing the game files]", flush=True)
     build_support.prepare_game_folder(game_dir, output, eboot)
+    icon, pic = build_support.prepare_game_artwork(game_dir, output)
+    if icon or pic:
+        print("Using title artwork from the NPEA00014 game folder.")
+    else:
+        print("No ICON0.PNG or PIC0.PNG found in the NPEA00014 game folder; using the default icon.")
 
     run_step("Configuring the PC build", [
         "pwsh", "-NoProfile", "-File", "tools/build.ps1",

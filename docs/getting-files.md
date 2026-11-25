@@ -26,5 +26,11 @@ are written under ignored `generated/` folders. The PC build is placed in the ig
 `ProjectStardust/` folder, and local saves remain there across rebuilds. None of these local game,
 firmware, generated, or save files belong in a GitHub upload.
 
+When the selected executable is located at `NPEA00014/USRDIR/EBOOT.ELF`, the builder also looks for
+`ICON0.PNG` and `PIC0.PNG` in the containing `NPEA00014` folder. If found, these files are copied
+locally and embedded into the produced Windows executable; its icon is also used for the desktop
+shortcut. Missing artwork is optional and the build uses its default icon. The images remain local
+and are excluded from the repository and source archive.
+
 See [Privacy](privacy.md) for downloads and local logs, and [Building](building.md) for the manual
 command sequence.

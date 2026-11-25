@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import tempfile
 
@@ -101,6 +102,89 @@ def prepare_game_folder(source: Path, destination: Path, eboot: Path) -> Path:
     if not (destination / "USRDIR" / "EBOOT.ELF").is_file():
         raise ValueError(f"The required output is missing: {destination / 'USRDIR' / 'EBOOT.ELF'}")
     return destination
+
+
+def prepare_game_artwork(source: Path, destination: Path) -> tuple[Path | None, Path | None]:
+    """Stage title artwork from the NPEA00014 folder and prepare it for Windows resources."""
+    source = source.resolve()
+    destination = destination.resolve()
+    candidates = (source, source / "PS3_GAME")
+    icon = next((root / "ICON0.PNG" for root in candidates if (root / "ICON0.PNG").is_file()), None)
+    pic = next((root / "PIC0.PNG" for root in candidates if (root / "PIC0.PNG").is_file()), None)
+    staged_icon = destination / "ICON0.PNG" if icon else None
+    staged_pic = destination / "PIC0.PNG" if pic else None
+    if icon and staged_icon:
+        shutil.copy2(icon, staged_icon)
+    elif (destination / "ICON0.PNG").exists():
+        (destination / "ICON0.PNG").unlink()
+    if pic and staged_pic:
+        shutil.copy2(pic, staged_pic)
+    elif (destination / "PIC0.PNG").exists():
+        (destination / "PIC0.PNG").unlink()
+
+    resource = ROOT / "generated" / "setup-game-artwork"
+    resource.mkdir(parents=True, exist_ok=True)
+    rc_lines = []
+    if staged_icon and staged_icon.is_file():
+        png = staged_icon.read_bytes()
+        if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 24:
+            raise ValueError(f"Game ICON0.PNG is not a valid PNG image: {staged_icon}")
+        width, height = struct.unpack(">II", png[16:24])
+        ico = resource / "ICON0.ico"
+        icon_png = resource / "ICON0.png"
+        if not width or not height:
+            raise ValueError(f"Game ICON0.PNG has invalid dimensions: {width}x{height}")
+        if width > 256 or height > 256:
+            powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+            if not powershell:
+                raise OSError("PowerShell is required to resize ICON0.PNG for the Windows executable icon.")
+            script = (
+                "Add-Type -AssemblyName System.Drawing; "
+                "$source = [System.Drawing.Image]::FromFile($env:SSHD_ICON_SOURCE); "
+                "try { "
+                "$scale = [Math]::Min(256.0 / $source.Width, 256.0 / $source.Height); "
+                "$width = [Math]::Max(1, [int][Math]::Round($source.Width * $scale)); "
+                "$height = [Math]::Max(1, [int][Math]::Round($source.Height * $scale)); "
+                "$bitmap = New-Object System.Drawing.Bitmap($width, $height, "
+                "[System.Drawing.Imaging.PixelFormat]::Format32bppArgb); "
+                "try { $graphics = [System.Drawing.Graphics]::FromImage($bitmap); "
+                "try { $graphics.InterpolationMode = "
+                "[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic; "
+                "$graphics.DrawImage($source, 0, 0, $width, $height); "
+                "$bitmap.Save($env:SSHD_ICON_RESIZED, [System.Drawing.Imaging.ImageFormat]::Png) "
+                "} finally { $graphics.Dispose() } "
+                "} finally { $bitmap.Dispose() } "
+                "} finally { $source.Dispose() }"
+            )
+            environment = os.environ.copy()
+            environment["SSHD_ICON_SOURCE"] = str(staged_icon)
+            environment["SSHD_ICON_RESIZED"] = str(icon_png)
+            subprocess.run(
+                [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            png = icon_png.read_bytes()
+            width, height = struct.unpack(">II", png[16:24])
+        else:
+            icon_png.write_bytes(png)
+        ico.write_bytes(
+            struct.pack("<HHH", 0, 1, 1)
+            + bytes((width % 256, height % 256, 0, 0))
+            + struct.pack("<HHII", 1, 32, len(png), 22)
+            + png
+        )
+        rc_lines.append(f'IDI_ICON1 ICON "{ico.as_posix()}"')
+    if staged_pic and staged_pic.is_file():
+        rc_lines.append(f'PIC0_ARTWORK RCDATA "{staged_pic.as_posix()}"')
+    rc = resource / "game_artwork.rc"
+    if rc_lines:
+        rc.write_text("\n".join(rc_lines) + "\n", encoding="utf-8")
+    else:
+        rc.unlink(missing_ok=True)
+    return staged_icon, staged_pic
 
 
 def assemble_deliverable() -> Path:

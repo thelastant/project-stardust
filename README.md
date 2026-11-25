@@ -36,8 +36,10 @@ builds and tests the PC version, and puts it in `ProjectStardust\`:
       Logs\run.log              the game's log (written on every launch)
     ```
 
-The final executable is `SUPER STARDUST HD.exe`. No PlayStation artwork is bundled; the executable
-uses a standard Windows icon. The desktop shortcut uses the executable icon.
+The final executable is `SUPER STARDUST HD.exe`. If `ICON0.PNG` and/or `PIC0.PNG` are present beside
+the selected game's `NPEA00014` folder, the builder copies them into the local game folder and embeds
+them in the executable. The desktop shortcut uses the executable's icon. These title assets are
+never included in the repository or source ZIP.
 
 Build intermediates stay under `build\setup-release\`; generated conversion files stay under
 `generated\`. After a successful build, use the desktop shortcut to start the game. Your original
@@ -99,4 +101,4 @@ Review [Third-party notices](THIRD_PARTY_NOTICES.md) for dependency terms.
 
 See [Project overview](docs/project-overview.md), [Building](docs/building.md), [Tests](docs/tests.md),
 and `AGENTS.md` for developer instructions.
-See [Release criteria](docs/release-criteria.md) for what remains before a tested public release.
+See [Release criteria](docs/release-criteria.md) for the project's verification policy.

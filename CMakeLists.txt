@@ -100,6 +100,11 @@ sshd_input_add()
 sshd_render_add()
 sshd_overlay_add()
 if(TARGET sshd_game)
+  set(SSHD_GAME_ARTWORK_RC "${CMAKE_SOURCE_DIR}/generated/setup-game-artwork/game_artwork.rc")
+  if(WIN32 AND EXISTS "${SSHD_GAME_ARTWORK_RC}")
+    enable_language(RC)
+    target_sources(sshd_game PRIVATE "${SSHD_GAME_ARTWORK_RC}")
+  endif()
   # sshd_media supplies the FFmpeg codec factory that game_main installs for the cellSail movies; the
   # FFmpeg DLLs it loads at run time are copied next to the executable by sshd_ffmpeg_runtime.
   target_link_libraries(sshd_game PRIVATE sshd_render sshd_overlay sshd_media)

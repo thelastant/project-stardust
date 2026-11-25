@@ -29,7 +29,9 @@ and its SDK is neither open source nor included.
 The repository and source release do not contain the commercial game executable, game data, PS3
 firmware, cryptographic keys, extracted or generated game code, saves, logs, or PS3 title artwork.
 Those files are not open source and must be supplied locally by each user. The build tools validate
-and process the selected files on the user's computer.
+and process the selected files on the user's computer. If the user's NPEA00014 folder contains
+`ICON0.PNG` or `PIC0.PNG`, the builder copies them into the ignored local player folder and embeds
+them in that user's executable. They are not copied into the source tree or release archive.
 
 The title and product names are used only to state compatibility. Project Stardust is unofficial and
 is not affiliated with or endorsed by Sony. This project documentation is not legal advice and

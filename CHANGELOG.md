@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Use user-provided NPEA00014 `ICON0.PNG` and `PIC0.PNG` in the locally built executable and
+  desktop shortcut; keep the title artwork out of the source repository and release archive.
+- Clarify builder behavior and artwork handling across the project documentation.
+
 ## 0.1.0-alpha.1 — 2026-11-25
 
 - Added a command-line builder for validating user-supplied NPEA00014 and firmware 4.93 inputs,
