@@ -986,10 +986,15 @@ void testHubMergesTwoPads() {
     backend->setReading(second, b);
     hub.step(Clock::now());
 
-    CHECK(hub.usedCount() == 2);
-    CHECK((state->held(sshd::InputSource::Gamepad) & (kCross | kCircle)) == (kCross | kCircle));
-    CHECK(state->analog().left_x == 0x00);  // the value farthest from centre
-    CHECK(state->analog().r2 == 0xFF);      // the larger trigger
+    // The first selected controller owns player one's input. A second controller must not merge
+    // buttons, sticks, or triggers into the same player.
+    CHECK(hub.usedCount() == 1);
+    CHECK(state->held(sshd::InputSource::Gamepad) ==
+          (kCross | sshd::padButtonBit(sshd::PadButton::R2)));
+    CHECK(state->analog().left_x == sshd::mapGamepadReading(a).analog.left_x);
+    CHECK(state->analog().r2 == sshd::mapGamepadReading(a).analog.r2);
+    CHECK(backend->reads(first) == 1);
+    CHECK(backend->reads(second) == 0);
 }
 
 void testHubSteamVirtualPadOnly() {
@@ -1144,31 +1149,26 @@ void testHubVibration() {
     hub.step(t0 + milliseconds(12));
     CHECK(backend->rumbleCalls().size() == 1);
 
-    // A pad that arrives later gets the current vibration, and the first pad is not told again.
-    const std::uint64_t late = backend->add(xboxPad(0));
+    // A pad that arrives later cannot join the player's input or receive its vibration.
+    backend->add(xboxPad(0));
     hub.step(t0 + milliseconds(16));
     calls = backend->rumbleCalls();
-    CHECK(calls.size() == 2);
-    if (calls.size() == 2) {
-        CHECK(calls[1].first == late);
-        CHECK(calls[1].second.low_frequency == 200.0f / 255.0f);
-    }
+    CHECK(calls.size() == 1);
 
     // A new request reaches every pad with motors once.
     state->setVibration(5, 0);
     hub.step(t0 + milliseconds(20));
     hub.step(t0 + milliseconds(24));
     calls = backend->rumbleCalls();
-    CHECK(calls.size() == 4);
-    if (calls.size() == 4) {
-        CHECK(calls[2].second.high_frequency == 1.0f && calls[2].second.low_frequency == 0.0f);
-        CHECK(calls[3].second == calls[2].second);
+    CHECK(calls.size() == 2);
+    if (calls.size() == 2) {
+        CHECK(calls[1].second.high_frequency == 1.0f && calls[1].second.low_frequency == 0.0f);
     }
 
     // Stopping is sent too.
     state->setVibration(0, 0);
     hub.step(t0 + milliseconds(28));
-    CHECK(backend->rumbleCalls().size() == 6);
+    CHECK(backend->rumbleCalls().size() == 3);
 }
 
 // A pad that stays connected but stops being used (Steam's virtual pad arrives) is told to stop.

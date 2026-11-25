@@ -37,9 +37,17 @@ void GamepadHub::refreshDevices() {
 
     std::vector<Used> used;
     std::map<std::uint64_t, GamepadUse> uses;
+    bool player_one_assigned = false;
     for (std::size_t i = 0; i < devices.size() && i < selection.size(); ++i) {
         const GamepadDeviceInfo& info = devices[i];
-        const GamepadSelection& chosen = selection[i];
+        GamepadSelection chosen = selection[i];
+        if (chosen.use == GamepadUse::Used) {
+            if (player_one_assigned) {
+                chosen.use = GamepadUse::AdditionalController;
+            } else {
+                player_one_assigned = true;
+            }
+        }
         uses[info.id] = chosen.use;
 
         const auto before = uses_.find(info.id);

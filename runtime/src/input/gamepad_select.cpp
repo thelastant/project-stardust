@@ -148,6 +148,7 @@ std::string_view gamepadUseName(GamepadUse use) {
         case GamepadUse::HandledBySteam: return "handled by steam";
         case GamepadUse::OtherProcess: return "other process";
         case GamepadUse::NotGamepad: return "not a gamepad";
+        case GamepadUse::AdditionalController: return "additional controller ignored";
     }
     return "unknown";
 }

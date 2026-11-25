@@ -99,6 +99,12 @@ runtime and hides Xbox pads.
 
 With `--pad gamepad` (no keyboard) and no runtime, port 0 stays disconnected.
 
+This game is single-player: the first selected controller is assigned to player one's port 0.
+Other connected controllers are ignored and logged as `additional controller ignored`; their
+buttons, sticks, triggers, and vibration are not combined with the assigned controller. If the
+assigned controller disconnects, another connected controller can be assigned on the next device
+refresh. Keyboard input, when enabled, remains an independent input source for player one.
+
 ### Steam
 
 Started from Steam as a non-Steam game, the Steam overlay hooks GameInput inside the process; the

@@ -36,6 +36,7 @@ enum class GamepadUse : std::uint8_t {
     HandledBySteam,  // physical pad that Steam's virtual pad stands for
     OtherProcess,    // Steam virtual pad of another process
     NotGamepad,      // no gamepad kind
+    AdditionalController,  // another controller would otherwise feed the same player
 };
 
 struct GamepadSelection {

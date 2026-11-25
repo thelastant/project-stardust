@@ -2,8 +2,9 @@
 // forwarding and the focus gate. Pure core code over GamepadBackend, so tests drive it synchronously
 // with a fake backend and an injected clock.
 //
-// Every used pad drives port 0 together with the keyboard and the script; ports 1..6 stay empty (the
-// game is single-player).
+// Exactly one selected physical/virtual controller drives player one's port 0, together with keyboard
+// and script input; additional controllers are ignored so they cannot combine into that player.
+// Ports 1..6 stay empty (the game is single-player).
 //
 // Threading: step() and the backend belong to one thread (the backend allows one calling thread), and
 // that thread is the only writer of the Gamepad source of the state. Guest threads only read atomics.
