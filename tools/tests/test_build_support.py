@@ -1,10 +1,28 @@
 import hashlib
+import binascii
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
+import zlib
 
 from tools import build_support
+
+
+def png_image(width: int, height: int) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", binascii.crc32(body))
+
+    row = b"\x00" + bytes((32, 128, 240, 255)) * width
+    header = struct.pack(">2I5B", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(row * height))
+        + chunk(b"IEND", b"")
+    )
 
 
 class BuildSupportTests(unittest.TestCase):
@@ -61,7 +79,7 @@ class BuildSupportTests(unittest.TestCase):
             root = Path(temporary)
             game = root / "NPEA00014"
             game.mkdir()
-            png = b"\x89PNG\r\n\x1a\n" + bytes(8) + (64).to_bytes(4, "big") + (64).to_bytes(4, "big") + b"image"
+            png = png_image(320, 176)
             (game / "ICON0.PNG").write_bytes(png)
             (game / "PIC0.PNG").write_bytes(png)
             output = root / "delivery" / "NPEA00014"
@@ -75,7 +93,10 @@ class BuildSupportTests(unittest.TestCase):
             rc = (resource / "game_artwork.rc").read_text(encoding="utf-8")
             self.assertIn("IDI_ICON1 ICON", rc)
             self.assertIn("PIC0_ARTWORK RCDATA", rc)
-            self.assertTrue((resource / "ICON0.ico").is_file())
+            ico = (resource / "ICON0.ico").read_bytes()
+            self.assertTrue(ico.startswith(struct.pack("<HHH", 0, 1, 1)))
+            self.assertEqual(ico[6:8], bytes((0, 141)))
+            self.assertEqual(struct.unpack(">II", ico[22 + 16:22 + 24]), (256, 141))
 
 
 if __name__ == "__main__":

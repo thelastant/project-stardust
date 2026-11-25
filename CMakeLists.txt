@@ -102,8 +102,30 @@ sshd_overlay_add()
 if(TARGET sshd_game)
   set(SSHD_GAME_ARTWORK_RC "${CMAKE_SOURCE_DIR}/generated/setup-game-artwork/game_artwork.rc")
   if(WIN32 AND EXISTS "${SSHD_GAME_ARTWORK_RC}")
-    enable_language(RC)
-    target_sources(sshd_game PRIVATE "${SSHD_GAME_ARTWORK_RC}")
+    find_program(SSHD_LLVM_RC NAMES llvm-rc.exe llvm-rc REQUIRED)
+    set(SSHD_GAME_ARTWORK_RES "${CMAKE_BINARY_DIR}/generated/game_artwork.res")
+    get_filename_component(SSHD_GAME_ARTWORK_RES_DIR "${SSHD_GAME_ARTWORK_RES}" DIRECTORY)
+    file(MAKE_DIRECTORY "${SSHD_GAME_ARTWORK_RES_DIR}")
+    set(SSHD_GAME_ARTWORK_DEPENDS "${SSHD_GAME_ARTWORK_RC}")
+    foreach(artwork_file
+        "${CMAKE_SOURCE_DIR}/generated/setup-game-artwork/ICON0.ico"
+        "${CMAKE_SOURCE_DIR}/generated/setup-game-artwork/ICON0.png"
+        "${CMAKE_SOURCE_DIR}/ProjectStardust/NPEA00014/ICON0.PNG"
+        "${CMAKE_SOURCE_DIR}/ProjectStardust/NPEA00014/PIC0.PNG")
+      if(EXISTS "${artwork_file}")
+        list(APPEND SSHD_GAME_ARTWORK_DEPENDS "${artwork_file}")
+      endif()
+    endforeach()
+    add_custom_command(
+      OUTPUT "${SSHD_GAME_ARTWORK_RES}"
+      COMMAND "${SSHD_LLVM_RC}" /fo "${SSHD_GAME_ARTWORK_RES}" "${SSHD_GAME_ARTWORK_RC}"
+      DEPENDS ${SSHD_GAME_ARTWORK_DEPENDS}
+      VERBATIM
+      COMMENT "Compiling user-provided game artwork resources")
+    add_custom_target(sshd_game_artwork_resource DEPENDS "${SSHD_GAME_ARTWORK_RES}")
+    add_dependencies(sshd_game sshd_game_artwork_resource)
+    target_link_options(sshd_game PRIVATE "${SSHD_GAME_ARTWORK_RES}")
+    set_property(TARGET sshd_game APPEND PROPERTY LINK_DEPENDS "${SSHD_GAME_ARTWORK_RES}")
   endif()
   # sshd_media supplies the FFmpeg codec factory that game_main installs for the cellSail movies; the
   # FFmpeg DLLs it loads at run time are copied next to the executable by sshd_ffmpeg_runtime.
