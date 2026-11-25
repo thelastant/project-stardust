@@ -61,6 +61,10 @@ and [Privacy](docs/privacy.md). If the build stops, read the displayed command o
 [Troubleshooting](docs/troubleshooting.md). You can
 also follow the [manual Windows build steps](docs/building.md#windows).
 
+For the project’s detailed development/provenance record—including the conversion pipeline,
+reference repositories, tools, pinned dependencies, tests, and release boundaries—see
+[How the project was built](docs/how-the-project-was-built.md).
+
 ## Supported inputs
 
 - The decrypted `EBOOT.ELF` already updated to the version supported by this project. Keep it with

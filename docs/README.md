@@ -12,6 +12,7 @@ parameter and describe how the project works:
 | [privacy.md](privacy.md) | Local processing, generated files, and network activity |
 | [troubleshooting.md](troubleshooting.md) | Common setup and build failures |
 | [release-criteria.md](release-criteria.md) | Checks required before a public release |
+| [how-the-project-was-built.md](how-the-project-was-built.md) | Project provenance, complete build pipeline, tools, pinned dependencies, references, and verification scope |
 | [../CHANGELOG.md](../CHANGELOG.md) | Project changes |
 | [analysis-tools.md](analysis-tools.md) | ELF summary, SPU probe, disassembler, Ghidra cross-check, NID and syscall name tables, target pin |
 | [function-recovery.md](function-recovery.md) | Recovering function starts and extents, the function database and its report |

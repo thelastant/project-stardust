@@ -220,7 +220,7 @@ through volk. The overlay uses ImGui's built-in default font, so no font file is
 | | |
 | --- | --- |
 | Version | Dear ImGui 1.91.9b (tag `v1.91.9b`, commit `f5befd2d29e66809cd1110a152e375a7f1981f06`) |
-| Source | <https://github.com/ocornut/imgui/tree/v1.91.9b> |
+| Source | <https://github.com/ocornut/imgui/tree/f5befd2d29e66809cd1110a152e375a7f1981f06> |
 | Licence | MIT License, Copyright (c) 2014-2025 Omar Cornut |
 
 The licence text is also in `externals/imgui/LICENSE.txt`:
@@ -261,8 +261,8 @@ in `fmt.license.rst` there) is neither compiled nor linked.
 
 | | |
 | --- | --- |
-| Version | spdlog 1.17.0 (tag `v1.17.0`, commit `79524ddd08a4ec981b7fea76afd08ee05f83755d`) |
-| Source | <https://github.com/gabime/spdlog/tree/v1.17.0> |
+| Version | Source commit `47584c1d8106f06560cf9f7558b64f3b5e5b88e7` (`v1.17.0-70-g47584c1d`) |
+| Source | <https://github.com/gabime/spdlog/tree/47584c1d8106f06560cf9f7558b64f3b5e5b88e7> |
 | Licence | MIT License, Copyright (c) 2016 - present, Gabi Melman and spdlog contributors |
 
 The licence text is also in `externals/spdlog/LICENSE`:
@@ -305,8 +305,8 @@ executables link.
 
 | | |
 | --- | --- |
-| Version | yyjson 0.13.0 (tag `0.13.0`, commit `6447536015f3d600f3d65323b10976103b337ca7`) |
-| Source | <https://github.com/ibireme/yyjson/tree/0.13.0> |
+| Version | Source commit `be9bd74bb3c96e00006c2075c330a6b8b90123dc` (`0.13.0-58-gbe9bd74`) |
+| Source | <https://github.com/ibireme/yyjson/tree/be9bd74bb3c96e00006c2075c330a6b8b90123dc> |
 | Licence | MIT License, Copyright (c) 2020 YaoYuan <ibireme@gmail.com> |
 
 The licence text is also in `externals/yyjson/LICENSE`:
@@ -346,8 +346,8 @@ licence (GPL v2) and is not built or used.
 
 | | |
 | --- | --- |
-| Version | xxHash 0.8.4 (tag `v0.8.4`, commit `c87183a77d67f7d37e3d2d1b7eaac5e7c695e4f0`) |
-| Source | <https://github.com/Cyan4973/xxHash/tree/v0.8.4> |
+| Version | Source commit `2ec67caeb18ec15ae60c0853174331089acddfc0` (`v0.7.4-1214-g2ec67ca`) |
+| Source | <https://github.com/Cyan4973/xxHash/tree/2ec67caeb18ec15ae60c0853174331089acddfc0> |
 | Licence | BSD 2-Clause License, Copyright (c) 2012-2021 Yann Collet |
 
 The licence text is also in `externals/xxHash/LICENSE`:
@@ -390,8 +390,8 @@ target `sshd_decrypt_lib`), and libpng needs it (see the next section). It is a 
 
 | | |
 | --- | --- |
-| Version | zlib 1.3.2 (tag `v1.3.2`, commit `da607da739fa6047df13e66a2af6b8bec7c2a498`) |
-| Source | <https://github.com/madler/zlib/tree/v1.3.2> |
+| Version | Source commit `617e19a81f38c15ff04de9f86882f42ad8a8ffd1` (`v1.4-21-g617e19a`) |
+| Source | <https://github.com/madler/zlib/tree/617e19a81f38c15ff04de9f86882f42ad8a8ffd1> |
 | Licence | zlib License, (C) 1995-2026 Jean-loup Gailly and Mark Adler |
 
 The licence text is also in `externals/zlib/LICENSE`:
@@ -433,8 +433,8 @@ through `sshd_runtime_core` and `sshd_render`.
 
 | | |
 | --- | --- |
-| Version | libpng 1.6.59 (tag `v1.6.59`, commit `cd952f49f95bb27154ae77dbb103032d95f6e580`) |
-| Source | <https://github.com/pnggroup/libpng/tree/v1.6.59> |
+| Version | Source commit `c0bb00592f6a734e2a2dff92d659b0aa95ca1d44` (`v1.6.59-167-gc0bb00592`) |
+| Source | <https://github.com/pnggroup/libpng/tree/c0bb00592f6a734e2a2dff92d659b0aa95ca1d44> |
 | Licence | PNG Reference Library License version 2, Copyright (c) 1995-2026 The PNG Reference Library Authors |
 
 The licence text is also in `externals/libpng/LICENSE`. It lists the earlier copyright holders and
@@ -588,8 +588,8 @@ target that links volk sees it. Nothing is built from it.
 
 | | |
 | --- | --- |
-| Version | Vulkan-Headers 1.4.363 (tag `v1.4.363`, commit `6802bb4733b63ed5efd3adb308a6c885ef180ea1`) |
-| Source | <https://github.com/KhronosGroup/Vulkan-Headers/tree/v1.4.363> |
+| Version | Vulkan-Headers 1.4.369 (tag `v1.4.369`, commit `d277a0a3cda9c682708c93279f0c72cd6b0ae3f3`) |
+| Source | <https://github.com/KhronosGroup/Vulkan-Headers/tree/d277a0a3cda9c682708c93279f0c72cd6b0ae3f3> |
 | Licence | Apache License 2.0 or MIT License (`SPDX-License-Identifier: Apache-2.0 OR MIT`); this project uses the MIT License, Copyright (c) 2015-2023 The Khronos Group Inc. |
 
 The repository has a `LICENSES/` directory with the texts of both licences (`Apache-2.0.txt` and
@@ -618,8 +618,8 @@ The renderer and the debug overlay load the Vulkan entry points at run time thro
 
 | | |
 | --- | --- |
-| Version | volk 1.4.363 (tag `vulkan-sdk-1.4.363.0`, commit `54fc0d7a72887cbfc5b030d26897b2b40ac53fb8`) |
-| Source | <https://github.com/zeux/volk/tree/vulkan-sdk-1.4.363.0> |
+| Version | Source commit `653b2bfd1142df0f00f921eb2c1ae9943092340a` (`vulkan-sdk-1.4.363.0-13-g653b2bf`) |
+| Source | <https://github.com/zeux/volk/tree/653b2bfd1142df0f00f921eb2c1ae9943092340a> |
 | Licence | MIT License, Copyright (c) 2018-2026 Arseny Kapoulkine |
 
 The licence text is also in `externals/volk/LICENSE.md`:
@@ -656,8 +656,8 @@ which `sshd_game` and `sshd_rsxreplay` link, and it resolves its Vulkan entry po
 
 | | |
 | --- | --- |
-| Version | VulkanMemoryAllocator 3.4.0 (tag `v3.4.0`, commit `3aa921224c154a0d2c43912bc88e1c42ce1f7607`) |
-| Source | <https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/tree/v3.4.0> |
+| Version | VulkanMemoryAllocator 3.5.0 (tag `v3.5.0`, commit `0f1a757da579831283413295cc7f3b47eb521c77`) |
+| Source | <https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/tree/0f1a757da579831283413295cc7f3b47eb521c77> |
 | Licence | MIT License, Copyright (c) 2017-2026 Advanced Micro Devices, Inc. |
 
 The licence text is also in `externals/VulkanMemoryAllocator/LICENSE.txt`:
