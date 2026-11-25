@@ -17,6 +17,6 @@ Do not label a release as tested until all applicable checks below pass from a c
 - Release archives contain only the project and permitted dependencies. Publish SHA-256 checksums,
   privacy notes, supported-input requirements, status and troubleshooting guidance.
 
-The `0.1.0-alpha.1` source-and-builder release passed the Windows native build and `game_boot` test
-with user-supplied inputs. It is not a playable binary release, and a complete playthrough has not
-been verified; see [Status](status.md).
+The `0.1.0-alpha.2` source-and-builder release passed the Windows native build, `game_boot` and
+`input_core` tests with user-supplied inputs. It is not a playable binary release. The reported
+gameplay hang remains unresolved and a complete playthrough has not been verified; see [Status](status.md).

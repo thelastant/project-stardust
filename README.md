@@ -5,8 +5,10 @@ PlayStation 3 (NPEA00014)**. Its tools translate the supported game's PowerPC an
 code and link it with a Windows runtime. It is not an emulator, a general PS3 converter, or a game
 download.
 
-**Current release: `0.1.0-alpha.1` — source and builder only.** The ZIP does not contain a playable
-game binary. Users supply their own supported game and firmware files and build locally.
+**Current release: [`0.1.0-alpha.2`](https://github.com/thelastant/project-stardust/releases/tag/v0.1.0-alpha.2)
+— source and builder only.** The ZIP does not contain a playable game binary. Users supply their own
+supported game and firmware files and build locally. The reported gameplay hang remains unresolved;
+a complete playthrough has not been verified.
 
 ## Build from Command Prompt
 

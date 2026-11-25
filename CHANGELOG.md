@@ -2,9 +2,18 @@
 
 ## Unreleased
 
-- Use user-provided NPEA00014 `ICON0.PNG` and `PIC0.PNG` in the locally built executable and
-  desktop shortcut; keep the title artwork out of the source repository and release archive.
-- Clarify builder behavior and artwork handling across the project documentation.
+## 0.1.0-alpha.2 — 2026-11-25
+
+- Use the user's NPEA00014 `ICON0.PNG` and `PIC0.PNG` in the locally built executable; use its icon
+  for the desktop shortcut. Keep user artwork out of the source repository and release archive.
+- Restrict single-player input to one controller at a time; additional controllers are ignored rather
+  than merged into player one's input.
+- Fix Windows CI path comparisons and compile embedded artwork resources with LLVM's resource compiler.
+- Update builder, input, and release documentation.
+
+This is a source-and-builder release, not a prebuilt game. The reported gameplay hang is not fixed;
+a complete playthrough has not been verified. Users must supply their own supported game executable
+and firmware. See [Status](docs/status.md) and [Release criteria](docs/release-criteria.md).
 
 ## 0.1.0-alpha.1 — 2026-11-25
 

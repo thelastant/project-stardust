@@ -52,7 +52,7 @@ for input details, network behavior, and known limitations.
 
 ## Alpha release contents
 
-`ProjectStardust-0.1.0-alpha.1.zip` is a portable **source-and-builder** archive. It contains the
+`ProjectStardust-0.1.0-alpha.2.zip` is a portable **source-and-builder** archive. It contains the
 open-source project and required source submodules, not a ready-to-play game executable. The game
 must be built locally from user-provided inputs. Generated executables are intentionally not attached
 to the public release because they contain translated game code.
