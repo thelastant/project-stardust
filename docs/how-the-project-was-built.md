@@ -39,6 +39,21 @@ source** from any broader claim about what a person may have read or used.
 | The PowerPC architecture and RPCS3 semantic handlers | Emitter comments and generated semantic tests identify instruction behavior references. Test descriptions label architectural or RPCS3 cases; the source should be consulted for each operator. | A reference citation is not a claim that an entire external implementation was copied. |
 | Ghidra | Optional analysis workflow for independent disassembly/export comparison, documented in `docs/analysis-tools.md`. | Ghidra and its JDK are not required for ordinary building or running the committed recompiler. |
 
+### Reverse-engineering tools and MCP services
+
+The project owner reports that the development workflow also used **IDA Pro**, an **IDA Pro MCP
+server**, and **REA (Reverse Engineering Assistant) through MCP**, alongside the repository's
+documented Ghidra and Python analysis tools. IDA Pro supplied interactive binary analysis; its MCP
+server made that analysis available to the AI-assisted workflow; REA supplied additional
+reverse-engineering assistance. These are development/research tools, not build or runtime
+dependencies.
+
+The source tree does not preserve IDA databases, MCP server versions/configuration, tool-call
+transcripts, or a mapping from an individual MCP result to a specific analysis record. Therefore the
+tool use above is owner-reported context, not independently reproducible provenance. Do not infer
+specific IDA/REA findings or claim a particular database row came from a particular service unless
+that evidence is separately recorded.
+
 The project also contains open-source dependency repositories. They are implementation dependencies,
 not evidence that their projects were used as design guides. Their exact source revisions are in the
 Git submodule gitlinks listed below.
@@ -246,7 +261,42 @@ the tagged Git commit. The alpha.2 publication used Git/tagging and GitHub CLI (
 to attach the source archive and its SHA-256 manifest as a prerelease. This release-management step
 is separate from the player's build and does not upload local game or firmware data.
 
-## 9. Where to find the detailed material
+## 9. Issue history: symptoms, investigation, fixes, and open work
+
+The repository does not contain a complete private development diary or an export of GitHub Issues.
+This ledger records the issues and resolutions recoverable from the current documentation, tests,
+changelog, and visible commits. It is not a claim that no other issues were encountered. The
+initial commit is a large source snapshot, so pre-snapshot issue chronology and tool-call details
+cannot be reconstructed here.
+
+| Issue / symptom | Investigation and action recorded | Resolution / evidence |
+| --- | --- | --- |
+| **Target codebase was much larger than the inherited game's.** The second target has roughly 3.3 million PPU words and 29,000 functions, versus about 210,000 words and 2,500 functions for the earlier target. | Adjusted emitter output chunking to 256 files to keep translation/compilation tractable; documented lowering build parallelism if the compiler runs out of memory. Fix emitter/header assumptions rather than hand-edit generated files. | Scaling approach and memory workaround documented in `docs/porting-guide.md`; not a runtime bug. |
+| **Switch recovery missed tables in functions using multiple TOC bases**, producing unresolved branches and, at runtime, unknown dispatch targets/small-address faults. | Recovery now collects TOC bases from function descriptors, tries the alternatives at each switch site, and prefers the owning function's descriptor TOC where results disagree. Recovery starts are fed back into analysis and the function database is committed. | `docs/porting-guide.md` records the correction. The later unknown target at `0x0092d1a4` from `0x0092d178` was identified as a recovery gap and the recorded run progressed past it. |
+| **SPU `bnusCore` thread initialization rejected thread number 1** in a group with one thread. | Corrected the validation to use the lv2 per-group thread table (256 slots), following the documented RPCS3 behavior, rather than comparing the index to the active thread count. | Subsequent run logs show thread 1 bound, started and waiting for its event; documented in `docs/spu.md`. |
+| **SPU indirect dispatch fault at LS `0x07900`**, reached from `0x0dae4`. | Traced the target through a function-pointer table populated from static data records. Extended SPU function recovery to treat data-segment words pointing at function starts as entries. | `0x7900` became dispatchable and the documented 300-second run had zero unknown SPU targets. The indirect site remains unresolved statically but uses runtime dispatch. |
+| **Boot test did not guarantee sufficient progress.** Earlier milestones stopped at an early syscall or first SPU group start. | Moved the `game_boot` milestone to the main thread's first `cellSpursEventFlagTryWait`, after an SPU LZMA batch. The documented procedure checks runs both with an empty HDD directory and existing installed data. | Stronger regression milestone in `cmake/game_boot.cmake` and `docs/tests.md`; explicitly not a gameplay or compatibility test. |
+| **Freeze/no flips when leaving a level**, reported with `frame_limit=120`. | `docs/troubleshooting.md` reports the same run stable at 60 or vsync and recommends setting the saved `frame_limit` to 60. The teardown/frame-limit/SPURS path is implicated by observations. | 60/vsync is a workaround for that observed case. It is not evidence that the underlying issue or the separately reported alpha gameplay hang is fixed. |
+| **Spurious `The SPURS is aborted.` during teardown** while every SPURS kernel thread is idle in an event wait. | Runtime records thread states and call chain, recognizes the all-kernels-idle condition, and ignores that abort so it does not kill the session. | Narrow false-abort case handled. Non-idle kernels and stopped-by-error SPU threads remain fatal; this is not a general SPURS implementation. |
+| **Reported gameplay hang / frame loop stops flipping.** | Runtime stall detection, census, watchdog and thread-wait diagnostics provide evidence for investigation. Alpha.2 explicitly records the report as not root-caused and not fixed. | **Open.** Diagnostics are not a solution. No claim of a fix is made in this guide. |
+| **Raw SPU thread groups and SPU `stop 0x120` unsupported.** | Limitation is explicitly listed in `docs/spu.md`; no implemented remedy is recorded. | **Open limitation.** |
+| **SPURS instance B for ATRAC3plus gets a group/thread but is not started.** | For the current path, host-side ATRAC decoding makes that SPU group unnecessary. | Current-path accommodation, not an implementation of that SPU execution path. |
+| **SPU reservation race window** around a snapshot comparison and 8-byte update. | The race window and its implications are documented; it remains listed as open. | **Open limitation; no fix recorded.** |
+| **Windows CI path comparisons failed** because of path representation differences. | Commit `b97ad2e` records the Windows CI comparison fix and associated test/documentation changes. | Addressed in that commit; not evidence about unrelated Windows issues. |
+| **Artwork resource compilation failed with Clang's RC wrapper** due to incompatible preprocessing/line-marker handling. | Commit `b5c2c3e` switched artwork resources to LLVM `llvm-rc` and expanded resource tests. | Addressed in that commit. |
+| **Several controllers could be merged into one player's input.** | Commit `ea80966` changed selection so one controller is used for the single player and additional controllers are ignored; input tests/docs were updated. | Addressed for single-player selection in that commit. |
+| **Risk of shipping game data/artwork or obsolete inherited build/installer material.** | Alpha.1 commit `2d3ce70` removed the obsolete GUI installer/packaging workflow and inherited target-specific artifacts/tooling; introduced a source-only builder and privacy/input documentation. Artwork is now staged only from the user's local game files. | Source-only release boundary and repository hygiene checks recorded; user game/firmware remain local. |
+| **Save dialog may lack the firmware Japanese font.** | Added an optional, hash-pinned BIZ UDPGothic fallback under its OFL license; firmware font remains preferred. | Fallback implemented; network failure is non-fatal. |
+| **Build setup/dependency download failures.** | Added pinned SHA-256-checked fetchers, local archive paths, offline build mode, explicit SDK prerequisites and troubleshooting guidance. | Mitigations exist; external network and user-installed SDK availability remain outside the repository's control. |
+| **Ghidra CellPPU decoding/export setup can be incomplete or wrong-language.** | Documented installing the CellPPU module, selecting the language, running decoder probes, and using the Cell language where generic PPC truncates Cell-only instructions. | Analysis workflow has checks and setup guidance in `docs/analysis-tools.md`; Ghidra remains optional. |
+| **Large builds can exhaust compiler memory.** | Reduce `CMAKE_BUILD_PARALLEL_LEVEL` (for example, to 4) and retain `generated/` so translation need not be repeated. | Documented operational workaround in `docs/troubleshooting.md`; actual available memory remains host-dependent. |
+
+For additional symptoms and exact log strings, see `docs/troubleshooting.md`. For unsupported runtime
+behavior, consult `docs/runtime.md`, `docs/spu.md`, `docs/rendering.md`, and `docs/status.md`. The
+visible root history contains six project commits before the documentation update; it cannot support
+a more detailed chronological account of undocumented issues or fixes.
+
+## 10. Where to find the detailed material
 
 - `README.md` — quick start and supported inputs.
 - `docs/getting-files.md` / `docs/privacy.md` — user-owned input requirements and handling.
