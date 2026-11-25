@@ -119,6 +119,7 @@ function(sshd_ppu_add_generated_tree)
               --libsre "${SSHD_INPUTS_DIR}/libsre.reloc.elf" ${boot_args})
     set_tests_properties(game_boot PROPERTIES
       LABELS run
+      RESOURCE_LOCK stardust_heavy_render
       TIMEOUT 60
       # Only the milestone is asserted: while boot HLE is incomplete the run is expected to stop
       # (often fatally) somewhere after it, and a stop before it leaves the pattern unmatched.

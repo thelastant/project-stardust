@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "comment": "Pinned open-source build tools. tools/fetch-toolchain.ps1 downloads these, checks each SHA-256, and extracts them under tools/toolchain. Version bumps must update all three fields together.",
+  "components": [
+    {
+      "name": "llvm",
+      "version": "23.1.6",
+      "asset": "LLVM-23.1.6-win64.msi",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.6/LLVM-23.1.6-win64.msi",
+      "sha256": "81f7eb520ca698eb2d5cd8bc4b8f24f7add9ed66ed40a6f722a6e6f060737c00",
+      "kind": "msi"
+    },
+    {
+      "name": "cmake",
+      "version": "4.5.1",
+      "asset": "cmake-4.5.1-windows-x86_64.zip",
+      "url": "https://github.com/Kitware/CMake/releases/download/v4.5.1/cmake-4.5.1-windows-x86_64.zip",
+      "sha256": "bfe6eadb245dc8213e0d3feea316b520cb2aae92f5667ffd76059ba6b05c430c",
+      "kind": "zip"
+    },
+    {
+      "name": "ninja",
+      "version": "1.13.2",
+      "asset": "ninja-win.zip",
+      "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
+      "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65",
+      "kind": "zip"
+    }
+  ]
+}

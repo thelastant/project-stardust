@@ -23,6 +23,7 @@ struct MountEntry {
     std::filesystem::path host;
     bool read_only = false;
     VfsDeviceInfo info = {};
+    bool strip_ps3_game = false;
 };
 
 struct FileEntry {
@@ -135,6 +136,7 @@ void configureVfs(VfsLayout layout) {
         }
         entry.read_only = mount.read_only;
         entry.host = std::move(mount.host);
+        entry.strip_ps3_game = mount.strip_ps3_game;
         if (!entry.read_only) {
             std::filesystem::create_directories(entry.host, ec);
             if (entry.device == VfsDevice::Hdd0) {
@@ -168,8 +170,11 @@ void configureVfs(VfsLayout layout) {
 }
 
 std::vector<VfsMount> gameDirMounts(const std::filesystem::path& game_dir) {
-    return {{"dev_bdvd", game_dir, true, std::nullopt},
-            {"app_home", game_dir / "PS3_GAME" / "USRDIR", true, std::nullopt}};
+    const bool installed_game = std::filesystem::is_directory(game_dir / "USRDIR") &&
+                                !std::filesystem::exists(game_dir / "PS3_GAME");
+    return {{"dev_bdvd", game_dir, true, std::nullopt, installed_game},
+            {"app_home", installed_game ? game_dir / "USRDIR" : game_dir / "PS3_GAME" / "USRDIR", true,
+             std::nullopt, installed_game}};
 }
 
 std::vector<VfsMount> hddDirMounts(const std::filesystem::path& hdd_dir) {
@@ -290,6 +295,9 @@ VfsResolution resolveVfs(std::string_view guest) {
     result.host = mount->host;
     try {
         for (size_t i = 1; i < parts.size(); i++) {
+            if (mount->strip_ps3_game && i == 1 && parts[i] == "PS3_GAME") {
+                continue;
+            }
             if (!isHostSafeName(parts[i])) {
                 result.status = VfsStatus::NotFound;
                 result.host.clear();
@@ -308,9 +316,14 @@ VfsResolution resolveVfs(std::string_view guest) {
             result.device == VfsDevice::Hdd0 && (parts.size() == 2 || (parts.size() == 3 && parts[1] == "game"));
     if (result.device == VfsDevice::Bdvd || result.device == VfsDevice::AppHome) {
         if (result.device == VfsDevice::AppHome) {
-            result.disc_path = std::filesystem::path("PS3_GAME") / "USRDIR";
+            result.disc_path = mount->strip_ps3_game ? std::filesystem::path("USRDIR")
+                                                     : std::filesystem::path("PS3_GAME") / "USRDIR";
         }
         for (size_t i = 1; i < parts.size(); i++) {
+            if (mount->strip_ps3_game && result.device == VfsDevice::Bdvd && i == 1 &&
+                parts[i] == "PS3_GAME") {
+                continue;
+            }
             result.disc_path = appendUtf8(std::move(result.disc_path), parts[i]);
         }
     }

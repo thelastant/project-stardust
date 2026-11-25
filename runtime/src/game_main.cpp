@@ -239,18 +239,10 @@ void saveOverlaySetting(sshd::OverlaySetting setting, std::string_view value) {
         case sshd::OverlaySetting::AaMode: g_settings_store->set("aa_mode", value); break;
         case sshd::OverlaySetting::Anisotropy: g_settings_store->set("anisotropic_filter", value); break;
         case sshd::OverlaySetting::WindowSize: g_settings_store->set("window_size", value); break;
-        case sshd::OverlaySetting::FrameGen: g_settings_store->set("frame_gen", value); break;
+        case sshd::OverlaySetting::FrameGen: break;
         case sshd::OverlaySetting::ObjectMotion: g_settings_store->set("object_motion", value); break;
+        case sshd::OverlaySetting::LogLevel: g_settings_store->set("log_level", value); break;
     }
-}
-
-VkPresentModeKHR presentModeFor(sshd::FgPresentMode mode) {
-    switch (mode) {
-        case sshd::FgPresentMode::Fifo: return VK_PRESENT_MODE_FIFO_KHR;
-        case sshd::FgPresentMode::Mailbox: return VK_PRESENT_MODE_MAILBOX_KHR;
-        case sshd::FgPresentMode::Immediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
-    }
-    return VK_PRESENT_MODE_MAILBOX_KHR;
 }
 
 // Runs on the RSX thread; a null result makes the consumer continue without rendering.
@@ -265,8 +257,6 @@ std::unique_ptr<sshd::RsxExecutor> createVulkanExecutor(const sshd::GameOptions&
     context_options.driver = opt.vk_driver;
     // Always loaded: availability is fixed at context creation and the overlay can switch to DLAA later.
     context_options.streamline = true;
-    // Frame generation is a property of presentation: without a window nothing is presented.
-    context_options.frame_generation = opt.window;
     std::unique_ptr<sshd::VkContext> context = sshd::createVkContext(context_options, error);
     if (!context) return nullptr;
     const std::uint32_t api = context->deviceProperties().apiVersion;
@@ -280,13 +270,6 @@ std::unique_ptr<sshd::RsxExecutor> createVulkanExecutor(const sshd::GameOptions&
     } else {
         sshd::logInfo("sshd: render: DLAA unavailable: {}", context->streamlineStatus());
     }
-    if (!opt.window) {
-        sshd::logInfo("sshd: render: frame generation unavailable: no window");
-    } else if (context->frameGenerationSupported()) {
-        sshd::logInfo("sshd: render: frame generation available ({})", context->frameGenerationStatus());
-    } else {
-        sshd::logInfo("sshd: render: frame generation unavailable: {}", context->frameGenerationStatus());
-    }
     if (opt.vk_validation && !context->validationEnabled()) {
         sshd::logWarn("sshd: render: validation layer requested but not installed");
     }
@@ -297,12 +280,7 @@ std::unique_ptr<sshd::RsxExecutor> createVulkanExecutor(const sshd::GameOptions&
     render_options.resolution_scale = opt.resolution_scale;
     render_options.aa_mode = opt.aa_mode;
     render_options.anisotropy = opt.anisotropy;
-    render_options.frame_gen = opt.frame_gen;
     render_options.dlaa_debug.motion = opt.object_motion ? sshd::DlaaMotion::Object : sshd::DlaaMotion::Matrices;
-    render_options.fg_debug.present_mode = presentModeFor(opt.fg_present_mode);
-    render_options.fg_debug.reflex_low_latency = opt.fg_reflex;
-    render_options.fg_debug.only_generated = opt.fg_only_generated;
-    render_options.fg_debug.cycle_seconds = opt.fg_cycle_seconds;
     render_options.shader_cache =
             opt.shader_cache.empty() ? std::filesystem::path("generated") / "shader_cache" : opt.shader_cache;
     // Requested PNG dumps follow --dump-frames so they land next to the periodic ones.

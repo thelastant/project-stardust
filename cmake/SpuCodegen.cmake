@@ -188,5 +188,6 @@ function(sshd_spu_add_lzma_inflate_test)
   set_tests_properties(spu_lzma_inflate PROPERTIES
     PASS_REGULAR_EXPRESSION
       "spu lzma inflate: 0x3073c bytes sha256 f4ad1f7125d9b31abf228e8043587aebc8f1501f0f4debed6d9814d06a12c751"
+    SKIP_RETURN_CODE 77
     TIMEOUT 120)
 endfunction()

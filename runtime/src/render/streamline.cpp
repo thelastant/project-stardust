@@ -252,6 +252,8 @@ struct Streamline::Impl {
     // Frame generation. The plugins are loaded by default when slInit was asked for them; the functions are resolved
     // while they are loaded and dropped when they are unloaded.
     bool frame_gen_requested = false;
+    bool dlssg_loaded = false;
+    bool reflex_loaded = false;
     bool frame_gen_loaded = false;   // sl.dlss_g and sl.reflex are both loaded
     bool frame_gen_partial = false;  // only one of them is, after a failed (un)load
     bool pcl_tried = false;
@@ -292,11 +294,12 @@ struct Streamline::Impl {
 
     // Reads the plugins' load state back from Streamline; a failed query counts as not loaded.
     void refreshFrameGenState() {
-        bool dlssg = false, reflex = false;
-        if (api.is_feature_loaded(sl::kFeatureDLSS_G, dlssg) != sl::Result::eOk) dlssg = false;
-        if (api.is_feature_loaded(sl::kFeatureReflex, reflex) != sl::Result::eOk) reflex = false;
-        frame_gen_loaded = dlssg && reflex;
-        frame_gen_partial = dlssg != reflex;
+        dlssg_loaded = false;
+        reflex_loaded = false;
+        if (api.is_feature_loaded(sl::kFeatureDLSS_G, dlssg_loaded) != sl::Result::eOk) dlssg_loaded = false;
+        if (api.is_feature_loaded(sl::kFeatureReflex, reflex_loaded) != sl::Result::eOk) reflex_loaded = false;
+        frame_gen_loaded = dlssg_loaded && reflex_loaded;
+        frame_gen_partial = dlssg_loaded != reflex_loaded;
     }
 
     void dropFrameGenFunctions() {
@@ -435,7 +438,9 @@ std::unique_ptr<Streamline> Streamline::load(const StreamlineLoadOptions& option
     }
     impl.initialized = true;
     impl.frame_gen_requested = options.frame_generation;
-    impl.frame_gen_loaded = options.frame_generation;
+    // slInit may reject a requested plugin on this adapter. Seed our state from Streamline itself so a later
+    // unload never calls slSetFeatureLoaded(false) for a feature that has no context.
+    if (options.frame_generation) impl.refreshFrameGenState();
     g_frame_gen_api_errors.store(0, std::memory_order_relaxed);
     impl.version = std::format("{}.{}.{}", SL_VERSION_MAJOR, SL_VERSION_MINOR, SL_VERSION_PATCH);
     return streamline;
@@ -806,7 +811,8 @@ bool Streamline::setFrameGenerationLoaded(bool loaded, std::string& reason) {
     // Reflex goes first when loading and last when unloading, the order of their dependency. Unloading stops at the
     // first failure: Reflex stays while DLSS-G is still loaded.
     bool ok = loaded ? setLoaded(sl::kFeatureReflex, true) && setLoaded(sl::kFeatureDLSS_G, true)
-                     : setLoaded(sl::kFeatureDLSS_G, false) && setLoaded(sl::kFeatureReflex, false);
+                     : (!impl.dlssg_loaded || setLoaded(sl::kFeatureDLSS_G, false)) &&
+                               (!impl.reflex_loaded || setLoaded(sl::kFeatureReflex, false));
     // Streamline answers eOk without always changing anything; ask for the state it ended up in.
     impl.refreshFrameGenState();
     if (ok && (impl.frame_gen_loaded != loaded || impl.frame_gen_partial)) {
@@ -814,9 +820,10 @@ bool Streamline::setFrameGenerationLoaded(bool loaded, std::string& reason) {
         ok = false;
     }
     if (!ok && loaded) {
-        // Loading is all or nothing: undo what was loaded (errors ignored; the state is queried again).
-        impl.api.set_feature_loaded(sl::kFeatureDLSS_G, false);
-        impl.api.set_feature_loaded(sl::kFeatureReflex, false);
+        // Loading is all or nothing: undo only plugins which actually acquired a context.
+        impl.refreshFrameGenState();
+        if (impl.dlssg_loaded) impl.api.set_feature_loaded(sl::kFeatureDLSS_G, false);
+        if (impl.reflex_loaded) impl.api.set_feature_loaded(sl::kFeatureReflex, false);
         impl.refreshFrameGenState();
     }
     return ok;

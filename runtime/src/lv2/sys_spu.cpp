@@ -882,6 +882,7 @@ void sysSpuThreadGroupTerminate(SshdPpuContext* ctx, std::uint8_t* base) {
     if (!group->terminated && !group->group_exit) {
         group->terminated = true;
         group->exit_status = arg32(ctx, 4);
+        logInfo("sshd: spu: group {:#010x} terminated with status {:#x}", group->id, group->exit_status);
     }
     for (SpuThreadRecord& thread : group->threads) {
         if (thread.cpu != nullptr) thread.cpu->requestHalt();
@@ -992,6 +993,8 @@ void sysSpuThreadReadLs(SshdPpuContext* ctx, std::uint8_t* base) {
     }
     std::uint64_t value = 0;
     for (std::uint32_t i = 0; i < type; i++) value = (value << 8) | thread->cpu->ls()[lsa + i];
+    // libsre reads a faulting SPU's local store here just before it aborts; the id names the thread.
+    logDebug("sshd: spu: read_ls thread {:#010x} lsa {:#x} size {}", arg32(ctx, 3), lsa, type);
     sshdWrite64(base, value_addr, value);
     setResultCode(ctx, kCellOk);
 }

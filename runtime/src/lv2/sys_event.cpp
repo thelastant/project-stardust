@@ -16,6 +16,7 @@
 
 #include "core/event_history.h"
 #include "core/guest_memory.h"
+#include "core/log.h"
 #include "core/threads.h"
 #include "spu/spu_channels.h"
 #include "sshd/ppu_context.h"
@@ -471,9 +472,14 @@ void sysEventQueueReceive(SshdPpuContext* ctx, std::uint8_t* base) {
         recordHistory(HistoryKind::EventReceive, queue_id, event.data2 & 0xFFFFFF, event.data3);
     };
     if (!queue->events.empty()) {
-        deliver(queue->events.front());
+        const Event event = queue->events.front();
+        deliver(event);
         queue->events.pop_front();
         setResultCode(ctx, kCellOk);
+        if (currentGuestThreadId() == 0x01000001u) {
+            logDebug("sshd: event: SpursHdlr1 receive source {:#x} data {:#x} {:#x} {:#x}", event.source,
+                    event.data1, event.data2, event.data3);
+        }
         return;
     }
 
@@ -488,6 +494,11 @@ void sysEventQueueReceive(SshdPpuContext* ctx, std::uint8_t* base) {
     }
     if (waiter.code == kCellOk) deliver(waiter.event);
     setResultCode(ctx, waiter.code);
+    // The SPURS handler thread treats an unexpected wakeup as a fault and aborts; record what it got.
+    if (currentGuestThreadId() == 0x01000001u) {
+        logDebug("sshd: event: SpursHdlr1 receive code {:#x} source {:#x} data {:#x} {:#x} {:#x}", waiter.code,
+                waiter.event.source, waiter.event.data1, waiter.event.data2, waiter.event.data3);
+    }
 }
 
 // 131 sys_event_queue_tryreceive(u32 id, sys_event_t* events, s32 size, u32* number): moves up to

@@ -125,6 +125,11 @@ int runSpuLzma(const Case& self, const Options& options) {
         return 2;
     }
     namespace fixture = sshd::lzma_fixture;
+    // 77 is CTest's SKIP_RETURN_CODE: this game folder has no TLFILE.TLDAT to inflate.
+    if (!std::filesystem::exists(fixture::tldatPath(game_dir))) {
+        std::fprintf(stderr, "skipped: no TLFILE.TLDAT in %s\n", game_dir.c_str());
+        return 77;
+    }
     fixture::Fixture lzma;
     if (!lzma.init(game_dir, elf)) return 1;
     fixture::Inflate run;

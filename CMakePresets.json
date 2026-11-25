@@ -38,6 +38,13 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "setup-release",
+      "inherits": "release",
+      "displayName": "CLI Release (separate build directory)",
+      "binaryDir": "${sourceDir}/build/setup-release",
+      "cacheVariables": { "SSHD_ENABLE_DLSS": "OFF" }
+    },
+    {
       "name": "pgo-generate",
       "inherits": "release",
       "displayName": "Release (LLVM PGO training)",
@@ -84,6 +91,7 @@
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "release", "configurePreset": "release" },
+    { "name": "setup-release", "configurePreset": "setup-release" },
     { "name": "pgo-generate", "configurePreset": "pgo-generate" },
     { "name": "pgo-use", "configurePreset": "pgo-use" },
     { "name": "profile", "configurePreset": "profile" },
@@ -95,6 +103,8 @@
     { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true },
       "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
     { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
+    { "name": "setup-release", "configurePreset": "setup-release", "output": { "outputOnFailure": true },
       "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },
     { "name": "pgo-generate", "configurePreset": "pgo-generate", "output": { "outputOnFailure": true },
       "filter": { "exclude": { "label": "^(run|dumps|eboot)$" } } },

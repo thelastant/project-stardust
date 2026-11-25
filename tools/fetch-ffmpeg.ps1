@@ -15,11 +15,16 @@ gets the same SHA-256 check and is never modified or deleted.
 
 .PARAMETER Force
 Discard an existing extraction and extract again.
+
+.PARAMETER LatestCompatible
+Use the newest upstream FFmpeg 9.0 win64 LGPL shared build. Its GitHub SHA-256 digest is
+verified and recorded locally. This is also used automatically if the pinned autobuild is gone.
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$From,
     [switch]$Force,
+    [switch]$LatestCompatible,
     # Catches unknown options so they become a usage error (exit 2) instead of a binding error.
     [Parameter(ValueFromRemainingArguments)]
     [string[]]$Unexpected
@@ -31,7 +36,11 @@ $ProgressPreference = 'SilentlyContinue'
 if ($Unexpected -or ($PSBoundParameters.ContainsKey('From') -and [string]::IsNullOrWhiteSpace($From))) {
     if ($Unexpected) { [Console]::Error.WriteLine("fetch-ffmpeg: unexpected argument: $($Unexpected -join ' ')") }
     else { [Console]::Error.WriteLine("fetch-ffmpeg: -From needs a path") }
-    [Console]::Error.WriteLine("usage: tools/fetch-ffmpeg.ps1 [-From <zip>] [-Force]")
+    [Console]::Error.WriteLine("usage: tools/fetch-ffmpeg.ps1 [-From <zip>] [-Force] [-LatestCompatible]")
+    exit 2
+}
+if ($From -and $LatestCompatible) {
+    [Console]::Error.WriteLine("fetch-ffmpeg: -From cannot be combined with -LatestCompatible")
     exit 2
 }
 
@@ -78,6 +87,41 @@ function Read-Pin {
     $match.Groups[1].Value
 }
 
+function Get-LatestCompatibleRelease {
+    $headers = @{
+        Accept = 'application/vnd.github+json'
+        'User-Agent' = 'Project-Stardust-FFmpeg-fetch'
+    }
+    $releases = @()
+    try {
+        $releases += Invoke-RestMethod -Headers $headers `
+            -Uri 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest'
+        $releases += Invoke-RestMethod -Headers $headers `
+            -Uri 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases?per_page=30'
+    }
+    catch {
+        throw "could not query FFmpeg-Builds release metadata: $($_.Exception.Message)"
+    }
+
+    foreach ($release in $releases) {
+        foreach ($candidate in $release.assets) {
+            if ($candidate.name -notmatch '^ffmpeg-n9\.0\.\d+-\d+-g[0-9a-f]+-win64-lgpl-shared-9\.0\.zip$') {
+                continue
+            }
+            if ($candidate.digest -notmatch '^sha256:([0-9a-fA-F]{64})$') {
+                continue
+            }
+            return [pscustomobject]@{
+                Tag = $release.tag_name
+                Asset = $candidate.name
+                Sha256 = $Matches[1].ToLowerInvariant()
+                Url = $candidate.browser_download_url
+            }
+        }
+    }
+    throw "no FFmpeg 9.0 win64 LGPL shared build with a GitHub SHA-256 digest was found"
+}
+
 $staging = $null
 try {
     $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -87,12 +131,23 @@ try {
     $tag = Read-Pin $pinText 'SSHD_FFMPEG_RELEASE_TAG' 'autobuild-[0-9-]+'
     $asset = Read-Pin $pinText 'SSHD_FFMPEG_ASSET' '[A-Za-z0-9._-]+\.zip'
     $expectedHash = (Read-Pin $pinText 'SSHD_FFMPEG_SHA256' '[0-9A-Fa-f]{64}').ToLowerInvariant()
+    $downloadUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$tag/$asset"
+    $usingCompatibleFallback = $false
+    if ($LatestCompatible) {
+        $fallback = Get-LatestCompatibleRelease
+        $tag = $fallback.Tag
+        $asset = $fallback.Asset
+        $expectedHash = $fallback.Sha256
+        $downloadUrl = $fallback.Url
+        $usingCompatibleFallback = $true
+    }
     $stem = $asset.Substring(0, $asset.Length - '.zip'.Length)
 
     $depsDir = Join-Path $repoRoot 'generated/deps/ffmpeg'
     $downloadDir = Join-Path $depsDir 'download'
     $finalDir = Join-Path $depsDir $stem
     $markerFile = Join-Path $finalDir '.verified-sha256'
+    $selectionFile = Join-Path $depsDir 'selected-build.json'
 
     # Resolved against the caller's location; verified before anything on disk is touched.
     $zipPath = $null
@@ -108,7 +163,11 @@ try {
     $verified = (Test-Path -LiteralPath $markerFile -PathType Leaf) -and
         ((Get-Content -LiteralPath $markerFile -Raw).Trim() -eq $expectedHash)
     if ($verified -and -not $Force) {
-        "ffmpeg: up to date ($stem)"
+        $selection = [ordered]@{ schema = 1; tag = $tag; asset = $asset; sha256 = $expectedHash }
+        [void][System.IO.Directory]::CreateDirectory($depsDir)
+        Set-Content -LiteralPath $selectionFile -Value ($selection | ConvertTo-Json) -Encoding utf8
+        if ($usingCompatibleFallback) { "ffmpeg: up to date with compatible build ($stem)" }
+        else { "ffmpeg: up to date ($stem)" }
         exit 0
     }
 
@@ -119,23 +178,74 @@ try {
             Remove-Item -LiteralPath $zipPath -Force
         }
         if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
-            $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$tag/$asset"
             [void][System.IO.Directory]::CreateDirectory($downloadDir)
             $partPath = "$zipPath.part"
-            "ffmpeg: downloading $url"
+            "ffmpeg: downloading $downloadUrl"
             try {
-                Invoke-WebRequest -Uri $url -OutFile $partPath
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $partPath
             }
             catch {
                 if (Test-Path -LiteralPath $partPath) { Remove-Item -LiteralPath $partPath -Force }
-                throw "download failed: $($_.Exception.Message)`n  The pinned release may have been removed; use -From with a copy of the zip."
+                $statusCode = $null
+                if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                }
+                if ($LatestCompatible -or $statusCode -ne 404) {
+                    throw "download failed: $($_.Exception.Message)"
+                }
+
+                "ffmpeg: pinned autobuild is no longer available; resolving the latest compatible FFmpeg 9.0 LGPL build"
+                $fallback = Get-LatestCompatibleRelease
+                $tag = $fallback.Tag
+                $asset = $fallback.Asset
+                $expectedHash = $fallback.Sha256
+                $downloadUrl = $fallback.Url
+                $usingCompatibleFallback = $true
+                $stem = $asset.Substring(0, $asset.Length - '.zip'.Length)
+                $finalDir = Join-Path $depsDir $stem
+                $markerFile = Join-Path $finalDir '.verified-sha256'
+                $verifiedFallback = (Test-Path -LiteralPath $markerFile -PathType Leaf) -and
+                    ((Get-Content -LiteralPath $markerFile -Raw).Trim() -eq $expectedHash)
+                if ($verifiedFallback -and -not $Force) {
+                    $selection = [ordered]@{ schema = 1; tag = $tag; asset = $asset; sha256 = $expectedHash }
+                    Set-Content -LiteralPath $selectionFile -Value ($selection | ConvertTo-Json) -Encoding utf8
+                    "ffmpeg: up to date with compatible build ($stem)"
+                    exit 0
+                }
+
+                $zipPath = Join-Path $downloadDir $asset
+                if ((Test-Path -LiteralPath $zipPath -PathType Leaf) -and
+                    (Get-Sha256 $zipPath) -ne $expectedHash) {
+                    Remove-Item -LiteralPath $zipPath -Force
+                }
+                if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+                    $partPath = "$zipPath.part"
+                    "ffmpeg: downloading $downloadUrl"
+                    try {
+                        Invoke-WebRequest -Uri $downloadUrl -OutFile $partPath
+                    }
+                    catch {
+                        if (Test-Path -LiteralPath $partPath) {
+                            Remove-Item -LiteralPath $partPath -Force
+                        }
+                        throw "compatible FFmpeg download failed: $($_.Exception.Message)"
+                    }
+                    $actual = Get-Sha256 $partPath
+                    if ($actual -ne $expectedHash) {
+                        Remove-Item -LiteralPath $partPath -Force
+                        throw "SHA-256 mismatch for compatible FFmpeg download: expected $expectedHash, got $actual"
+                    }
+                    Move-Item -LiteralPath $partPath -Destination $zipPath -Force
+                }
             }
-            $actual = Get-Sha256 $partPath
-            if ($actual -ne $expectedHash) {
-                Remove-Item -LiteralPath $partPath -Force
-                throw "SHA-256 mismatch for the download: expected $expectedHash, got $actual"
+            if (Test-Path -LiteralPath $partPath -PathType Leaf) {
+                $actual = Get-Sha256 $partPath
+                if ($actual -ne $expectedHash) {
+                    Remove-Item -LiteralPath $partPath -Force
+                    throw "SHA-256 mismatch for the download: expected $expectedHash, got $actual"
+                }
+                Move-Item -LiteralPath $partPath -Destination $zipPath -Force
             }
-            Move-Item -LiteralPath $partPath -Destination $zipPath -Force
         }
     }
 
@@ -154,6 +264,8 @@ try {
     if (Test-Path -LiteralPath $finalDir) { Remove-Item -LiteralPath $finalDir -Recurse -Force }
     Move-Item -LiteralPath $extracted -Destination $finalDir
     Set-Content -LiteralPath $markerFile -Value $expectedHash -NoNewline
+    $selection = [ordered]@{ schema = 1; tag = $tag; asset = $asset; sha256 = $expectedHash }
+    Set-Content -LiteralPath $selectionFile -Value ($selection | ConvertTo-Json) -Encoding utf8
     "ffmpeg: ready in generated/deps/ffmpeg/$stem"
     exit 0
 }

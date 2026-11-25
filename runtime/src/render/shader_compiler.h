@@ -9,7 +9,7 @@
 
 namespace sshd {
 
-enum class ShaderStage { Vertex, Fragment };
+enum class ShaderStage { Vertex, Fragment, Compute };
 
 // Part of every cache file name. Bump it on any change to the GLSL the translators emit, so stale
 // SPIR-V is never reused.

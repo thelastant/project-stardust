@@ -32,9 +32,7 @@ const std::string kUsage = std::format(
         "                [--resolution-scale N] [--aa-mode supersample|msaa|dlaa] [--vk-validation] [--no-window]\n"
         "                [--anisotropic-filter off|2|4|8|16] [--vk-driver auto|moltenvk|kosmickrisp]\n"
         "                [--window-size 540p|720p|900p|1080p|1440p|2160p]\n"
-        "                [--object-motion on|off] [--fullscreen on|off] [--frame-gen off|60|90|120|180|unlimited]\n"
-        "                [--fg-present-mode mailbox|immediate|fifo] [--fg-reflex on|off] [--fg-only-generated]\n"
-        "                [--fg-cycle SECONDS] (frame generation defaults: mailbox, reflex on)\n"
+        "                [--object-motion on|off] [--fullscreen on|off]\n"
         "                [--frame-limit vsync|30|60|72|90|120|144|165|240|off] [--host-priorities on|off] [--yield-backoff on|off]\n"
         "                [--ppu-threads legacy|1|2] [--lwmutex-fast-path on|off] [--lwmutex-watch]\n"
         "                [--dump-guest ADDR:SIZE:FILE]...\n"
@@ -54,8 +52,19 @@ struct RawItem {
     std::filesystem::path path;  // file Path values; their UTF-8 text must not go through `text`
 };
 
+std::filesystem::path pathFromUtf8(std::string_view text) {
+    return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+}
+
+// Path to UTF-8 for messages and for values kept as text. `path::string()` would use the ANSI code
+// page on Windows and throw for any name it cannot represent.
+std::string pathText(const std::filesystem::path& path) {
+    const std::u8string utf8 = path.u8string();
+    return std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size());
+}
+
 std::filesystem::path itemPath(const RawItem& item) {
-    return item.from_file ? item.path : std::filesystem::path(item.text);
+    return item.from_file ? item.path : pathFromUtf8(item.text);
 }
 
 // What the validators settle besides the GameOptions members: facts about which options were given, and the
@@ -69,8 +78,6 @@ struct ParseState {
     bool anisotropy_given = false;
     bool vk_driver_given = false;
     bool window_option_given = false;  // --window-size or --fullscreen
-    bool frame_gen_given = false;
-    bool fg_option_given = false;  // any of the --fg-* diagnostics
     bool pad_given = false;
     bool audio_given = false;
     std::string pad_script_text;
@@ -281,7 +288,7 @@ bool addSpuCapture(ParseState& state, std::string_view label, const RawItem& ite
 }
 
 bool setSpuCaptureDir(ParseState& state, std::string_view, const RawItem& item, std::string&) {
-    state.options.spu_capture.dir = itemPath(item).string();
+    state.options.spu_capture.dir = pathText(itemPath(item));
     return true;
 }
 
@@ -349,7 +356,7 @@ bool setVkDriver(ParseState& state, std::string_view label, const RawItem& item,
 
 bool setWindowSize(ParseState& state, std::string_view label, const RawItem& item, std::string& error) {
     const std::optional<WindowSizePreset> preset = parseWindowSize(item.text);
-    if (!preset) return fail(error, std::format("error: {} needs 720p, 1080p, 1440p or 2160p\n", label));
+    if (!preset) return fail(error, std::format("error: {} needs 540p, 720p, 900p, 1080p, 1440p or 2160p\n", label));
     state.options.window_size = *preset;
     state.window_option_given = true;
     return true;
@@ -358,50 +365,6 @@ bool setWindowSize(ParseState& state, std::string_view label, const RawItem& ite
 bool setFullscreen(ParseState& state, std::string_view label, const RawItem& item, std::string& error) {
     if (!setSwitch<&GameOptions::fullscreen>(state, label, item, error)) return false;
     state.window_option_given = true;
-    return true;
-}
-
-bool setFrameGen(ParseState& state, std::string_view label, const RawItem& item, std::string& error) {
-    const std::optional<FrameGenTarget> target = parseFrameGenTarget(item.text);
-    if (!target) return fail(error, std::format("error: {} needs off|60|90|120|180|unlimited\n", label));
-    state.options.frame_gen = *target;
-    state.frame_gen_given = true;
-    return true;
-}
-
-bool setFgPresentMode(ParseState& state, std::string_view label, const RawItem& item, std::string& error) {
-    if (item.text == "fifo") {
-        state.options.fg_present_mode = FgPresentMode::Fifo;
-    } else if (item.text == "mailbox") {
-        state.options.fg_present_mode = FgPresentMode::Mailbox;
-    } else if (item.text == "immediate") {
-        state.options.fg_present_mode = FgPresentMode::Immediate;
-    } else {
-        return fail(error, std::format("error: {} needs fifo|mailbox|immediate\n", label));
-    }
-    state.fg_option_given = true;
-    return true;
-}
-
-bool setFgReflex(ParseState& state, std::string_view label, const RawItem& item, std::string& error) {
-    if (!setSwitch<&GameOptions::fg_reflex>(state, label, item, error)) return false;
-    state.fg_option_given = true;
-    return true;
-}
-
-bool setFgOnlyGenerated(ParseState& state, std::string_view, const RawItem&, std::string&) {
-    state.options.fg_only_generated = true;
-    state.fg_option_given = true;
-    return true;
-}
-
-bool setFgCycle(ParseState& state, std::string_view label, const RawItem& item, std::string& error) {
-    constexpr std::uint32_t kMaxCycleSeconds = 600;
-    if (!parseUnsigned(item.text, state.options.fg_cycle_seconds) || state.options.fg_cycle_seconds < 1 ||
-        state.options.fg_cycle_seconds > kMaxCycleSeconds) {
-        return fail(error, std::format("error: {} needs a whole number from 1 to {}\n", label, kMaxCycleSeconds));
-    }
-    state.fg_option_given = true;
     return true;
 }
 
@@ -422,7 +385,7 @@ constexpr auto kEntries = std::to_array<OptionEntry>({
         {{"ui-font", OptionKind::Path}, setPath<&GameOptions::ui_font>},
         {{"dump-frames", OptionKind::Path, false, OptionNeeds::Renderer}, setPath<&GameOptions::dump_frames>},
         {{"shader-cache", OptionKind::Path, false, OptionNeeds::Renderer}, setPath<&GameOptions::shader_cache>},
-        {{"log-level", OptionKind::String}, setLogLevelOption},
+        {{"log-level", OptionKind::String, true, OptionNeeds::Nothing}, setLogLevelOption},
         {{"dialog-answer", OptionKind::String}, setDialogAnswerOption},
         {{"save-dialog", OptionKind::String}, setSaveDialog},
         {{"pad", OptionKind::String}, setPad},
@@ -456,11 +419,6 @@ constexpr auto kEntries = std::to_array<OptionEntry>({
         {{"vk-driver", OptionKind::String, false, OptionNeeds::Renderer}, setVkDriver},
         {{"window-size", OptionKind::String, true, OptionNeeds::Window}, setWindowSize},
         {{"fullscreen", OptionKind::Switch, true, OptionNeeds::Window}, setFullscreen},
-        {{"frame-gen", OptionKind::String, true, OptionNeeds::Window}, setFrameGen},
-        {{"fg-present-mode", OptionKind::String, false, OptionNeeds::Window}, setFgPresentMode},
-        {{"fg-reflex", OptionKind::Switch, false, OptionNeeds::Window}, setFgReflex},
-        {{"fg-only-generated", OptionKind::Flag, false, OptionNeeds::Window}, setFgOnlyGenerated},
-        {{"fg-cycle", OptionKind::Unsigned, false, OptionNeeds::Window}, setFgCycle},
 });
 
 constexpr auto kSpecs = [] {
@@ -601,7 +559,7 @@ void addFileItems(const OptionSpec& spec, const ConfigValue& value, Chosen& chos
     };
     switch (spec.kind) {
         case OptionKind::Path:
-            chosen.items.push_back({.text = value.path.string(), .from_file = true, .path = value.path});
+            chosen.items.push_back({.text = pathText(value.path), .from_file = true, .path = value.path});
             break;
         case OptionKind::String:
         case OptionKind::Unsigned:
@@ -687,12 +645,6 @@ std::optional<OptionsError> settle(ParseState& state, const std::string& file_no
     if (state.window_option_given && !opt.window) {
         return combined("error: --window-size and --fullscreen need the window\n");
     }
-    if (state.frame_gen_given && !opt.window) return combined("error: --frame-gen needs the window\n");
-    if (state.fg_option_given && opt.frame_gen == FrameGenTarget::Off) {
-        return combined(
-                "error: --fg-present-mode, --fg-reflex, --fg-only-generated and --fg-cycle need --frame-gen other "
-                "than off\n");
-    }
     // A window or a script is what makes a keyboard pad useful, so either one selects it by default.
     const bool pad_input = opt.window || !opt.pad_script.empty();
     if (!state.pad_given) opt.pad = opt.window ? "keyboard+gamepad" : pad_input ? "keyboard" : "neutral";
@@ -739,7 +691,7 @@ std::expected<GameOptions, OptionsError> parseGameOptions(std::span<const std::s
 
     auto location = locateConfig(line, search);
     if (!location) return std::unexpected(std::move(location.error()));
-    const std::string file_name = location->file.string();
+    const std::string file_name = pathText(location->file);
     ConfigFileContents file;
     if (!location->file.empty()) {
         const std::optional<std::string> text = readBinaryFile(location->file);
@@ -786,14 +738,14 @@ void applyGameOptions(const GameOptions& options) {
     if (!options.dialog_answer.empty()) setDialogAnswer(options.dialog_answer);
 
     if (!options.config_file.empty()) {
-        const std::string file = options.config_file.string();
+        const std::string file = pathText(options.config_file);
         logInfo("sshd: config: {}", file);
         for (const std::string& warning : options.config_warnings) logWarn("sshd: config: {}: {}", file, warning);
         for (const std::string& ignored : options.config_ignored) logDebug("sshd: config: {}: {}", file, ignored);
     } else if (options.no_config) {
         logInfo("sshd: config: off (--no-config)");
     } else if (!options.settings_file.empty()) {
-        logInfo("sshd: config: none found; changes are saved to {}", options.settings_file.string());
+        logInfo("sshd: config: none found; changes are saved to {}", pathText(options.settings_file));
     } else {
         logInfo("sshd: config: none found");
     }

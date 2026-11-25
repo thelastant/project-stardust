@@ -17,7 +17,6 @@
 #include "core/log.h"
 #include "core/threads.h"
 #include "input/pad_script.h"
-#include "render/frame_gen.h"
 #include "render/render_scale.h"
 #include "render/vk_device_choice.h"
 #include "render/window_size.h"
@@ -34,10 +33,6 @@ inline constexpr std::string_view kHostAudioOutput = "coreaudio";
 #else
 #error "no host audio output for this platform"
 #endif
-
-// The present mode requested while frame generation is loaded. Kept here, apart from VkPresentModeKHR, so that option
-// parsing does not depend on Vulkan; game_main maps it.
-enum class FgPresentMode : std::uint8_t { Fifo, Mailbox, Immediate };
 
 // How a save data dialog is answered: Auto and Cancel never show anything, Window is the interactive dialog.
 enum class SaveDialogMode : std::uint8_t { Auto, Cancel, Window };
@@ -68,14 +63,7 @@ struct GameOptions {
     VkDriverChoice vk_driver = VkDriverChoice::Auto;
     WindowSizePreset window_size = WindowSizePreset::Size720p;
     bool fullscreen = false;
-    FrameGenTarget frame_gen = FrameGenTarget::Off;
-    bool object_motion = true;  // per-object motion vectors for DLAA and frame generation; only used with AaMode::Dlaa
-    // Frame generation diagnostics; each needs frame_gen other than Off. Mailbox is the default because DLSS-G requires
-    // vsync off; Fifo is only a diagnostic.
-    FgPresentMode fg_present_mode = FgPresentMode::Mailbox;
-    bool fg_reflex = true;
-    bool fg_only_generated = false;
-    std::uint32_t fg_cycle_seconds = 0;  // 0 = off, else 1..600
+    bool object_motion = true;  // per-object motion vectors for DLAA; only used with AaMode::Dlaa
     std::vector<std::uint32_t> rsx_capture_frames;
     std::vector<GuestDumpSpec> dumps;
     // SPU span capture (debug): the spans to capture and where, when and how many files to write. Settled: the

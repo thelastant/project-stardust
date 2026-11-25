@@ -4059,6 +4059,20 @@ void testVfsConfig() {
     hostFile(cfg / "plain" / "other.txt", "other");
     hostFile(root / "cache" / "PS3_GAME" / "USRDIR" / "Exi.sdat", "from-cache");
 
+    // Installed package layout keeps NPEA00014/USRDIR on the host while guest paths retain
+    // their PS3_GAME prefix.
+    const stdfs::path installed = cfg / "NPEA00014";
+    hostFile(installed / "USRDIR" / "EBOOT.ELF", "elf");
+    const auto installed_mounts = sshd::gameDirMounts(installed);
+    CHECK(installed_mounts.size() == 2 && installed_mounts[0].strip_ps3_game);
+    sshd::configureVfs(installed, std::nullopt);
+    bool installed_read_only = false;
+    const auto installed_elf =
+            sshd::resolveGuestPath("/dev_bdvd/PS3_GAME/USRDIR/EBOOT.ELF", installed_read_only);
+    CHECK(installed_elf == installed / "USRDIR" / "EBOOT.ELF" && installed_read_only);
+    const auto installed_app_home = sshd::resolveGuestPath("/app_home/EBOOT.ELF", installed_read_only);
+    CHECK(installed_app_home == installed / "USRDIR" / "EBOOT.ELF");
+
     // A full file: relative host paths resolve against the base directory.
     const auto full = sshd::parseVfsConfig(R"({
     "version": 1,
@@ -5948,6 +5962,8 @@ void testPadScriptParse() {
     CHECK(scriptEventsAre("# only a comment\n\n   \t\n", {}));
     CHECK(scriptEventsAre("1 press start # trailing comment\r\n\t2.5\tpress\t cross",
                           {{1000, kStart, true}, {2500, kCross, true}}));
+    CHECK(scriptEventsAre("1 press start\r\n2 release start\r\n",
+                          {{1000, kStart, true}, {2000, kStart, false}}));
 
     // press / release, decimal times (also rounding past the third decimal), several buttons.
     CHECK(

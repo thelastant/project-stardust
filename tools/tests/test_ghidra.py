@@ -585,7 +585,10 @@ class CellRunTest(GhidraTestBase):
         self.assertNotIn("Cell PPU", err)
 
 
-@unittest.skipUnless(os.environ.get("SSHD_EBOOT_ELF"), "SSHD_EBOOT_ELF is not set")
+@unittest.skipUnless(
+    os.environ.get("SSHD_EBOOT_ELF") and os.environ.get("SSHD_REAL_EBOOT_TESTS") == "1",
+    "reference EBOOT tests need SSHD_EBOOT_ELF and SSHD_REAL_EBOOT_TESTS=1",
+)
 class RealEbootSeedsTest(unittest.TestCase):
     def test_seeds(self):
         path = os.environ["SSHD_EBOOT_ELF"]

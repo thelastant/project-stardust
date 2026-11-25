@@ -764,85 +764,6 @@ void testFrameGenSelectable() {
     CHECK(!sshd::frameGenSelectable(state));
 }
 
-void testFrameGenPanel() {
-    using sshd::FrameGenTarget;
-    SettingCalls recorded;
-    sshd::OverlaySources sources = makeFakeSources();
-    recorded.attach(sources);
-    constexpr float kProbeX = 60.0f;
-    constexpr float kWindowBottom = 720.0f;
-
-    {
-        // Unsupported: the row is not drawn, so the panel is shorter than with it. One probe at a time, because each
-        // owns the current ImGui context.
-        float unsupported_height = 0.0f;
-        {
-            sshd::OverlayState unsupported;
-            unsupported.aa_mode = sshd::AaMode::Dlaa;
-            SettingsProbe probe(unsupported, sources);
-            if (probe.window() == nullptr) return;
-            CHECK(!probe.findHovered(probe.window()->GetID("Frame generation"), kProbeX, 10.0f, kWindowBottom));
-            unsupported_height = probe.window()->Size.y;
-            CHECK(!unsupported.frame_gen_request && recorded.calls.empty());
-        }
-        sshd::OverlayState supported;
-        supported.aa_mode = sshd::AaMode::Dlaa;
-        supported.setFrameGen(true, FrameGenTarget::Off, {});
-        SettingsProbe probe(supported, sources);
-        if (probe.window() == nullptr) return;
-        CHECK(probe.window()->Size.y > unsupported_height);
-    }
-
-    // Without DLAA the combo is disabled: no click reaches a request or a saved setting.
-    for (const sshd::AaMode mode : {sshd::AaMode::Msaa, sshd::AaMode::Supersample}) {
-        sshd::OverlayState state;
-        state.aa_mode = mode;
-        state.msaa_available = true;
-        state.dlaa_available = true;
-        state.setFrameGen(true, FrameGenTarget::Fps180, {});
-        SettingsProbe probe(state, sources);
-        if (probe.window() == nullptr) continue;
-        CHECK(!probe.findHovered(probe.window()->GetID("Frame generation"), kProbeX, 10.0f, kWindowBottom));
-        CHECK(!state.frame_gen_request);
-        CHECK(recorded.calls.empty());
-        CHECK(sshd::frameGenDisabledNote(state) == "needs DLAA anti-aliasing");
-        CHECK(state.frame_gen_target == FrameGenTarget::Fps180);
-    }
-
-    {
-        // With DLAA the combo opens and a pick is requested and reported for saving.
-        sshd::OverlayState state;
-        state.aa_mode = sshd::AaMode::Dlaa;
-        state.msaa_available = true;
-        state.dlaa_available = true;
-        state.setFrameGen(true, FrameGenTarget::Off, {});
-        SettingsProbe probe(state, sources);
-        if (probe.window() == nullptr) return;
-        const std::optional<ImVec2> combo =
-                probe.findHovered(probe.window()->GetID("Frame generation"), kProbeX, 10.0f, kWindowBottom);
-        CHECK(combo.has_value());
-        if (!combo) return;
-        CHECK(!state.frame_gen_request && recorded.calls.empty());
-        probe.click(*combo);
-        ImGuiContext& g = *ImGui::GetCurrentContext();
-        CHECK(g.OpenPopupStack.Size == 1);
-        if (g.OpenPopupStack.Size != 1 || g.OpenPopupStack[0].Window == nullptr) return;
-        ImGuiWindow* popup = g.OpenPopupStack[0].Window;
-        CHECK(recorded.calls.empty());  // opening the list changes nothing
-        const std::optional<ImVec2> pick = probe.findHovered(popup->GetID("180 fps (unverified)"), popup->Pos.x + 10.0f,
-                                                             popup->Pos.y, popup->Pos.y + popup->Size.y);
-        CHECK(pick.has_value());
-        if (!pick) return;
-        probe.click(*pick);
-        CHECK(state.frame_gen_request == FrameGenTarget::Fps180);
-        CHECK(recorded.calls.size() == 1);
-        if (recorded.calls.size() == 1) {
-            CHECK(recorded.calls[0].first == sshd::OverlaySetting::FrameGen);
-            CHECK(recorded.calls[0].second == "180");
-        }
-    }
-}
-
 void testObjectMotionPanel() {
     SettingCalls recorded;
     sshd::OverlaySources sources = makeFakeSources();
@@ -893,33 +814,6 @@ void testObjectMotionPanel() {
             CHECK(recorded.calls[0].first == sshd::OverlaySetting::ObjectMotion);
             CHECK(recorded.calls[0].second == (before ? "off" : "on"));
         }
-    }
-}
-
-// The saved target is the renderer's, so the AA combo cannot lose it: Dlaa -> Msaa -> Dlaa leaves target, request and
-// saved settings alone, and the combo is usable again at the end.
-void testFrameGenDlaaRoundTrip() {
-    using sshd::FrameGenTarget;
-    SettingCalls recorded;
-    sshd::OverlaySources sources = makeFakeSources();
-    recorded.attach(sources);
-    sshd::OverlayState state;
-    state.msaa_available = true;
-    state.dlaa_available = true;
-    const sshd::FrameGenStatus active{
-            .active = true, .multiplier = 6, .game_fps = 30, .inactive_reason = {}, .max_multiplier = 6};
-    for (const sshd::AaMode mode : {sshd::AaMode::Dlaa, sshd::AaMode::Msaa, sshd::AaMode::Dlaa}) {
-        state.aa_mode = mode;
-        state.setFrameGen(true, FrameGenTarget::Fps180, mode == sshd::AaMode::Dlaa ? active : sshd::FrameGenStatus{});
-        SettingsProbe probe(state, sources);
-        if (probe.window() == nullptr) return;
-        const bool usable =
-                probe.findHovered(probe.window()->GetID("Frame generation"), 60.0f, 10.0f, 720.0f).has_value();
-        CHECK(usable == (mode == sshd::AaMode::Dlaa));
-        CHECK(state.frame_gen_target == FrameGenTarget::Fps180);
-        CHECK(!state.frame_gen_request);
-        CHECK(recorded.calls.empty());
-        CHECK(sshd::frameGenItemLabel(state.frame_gen_target) == "180 fps (unverified)");
     }
 }
 
@@ -2352,9 +2246,7 @@ int main() {
     testFrameGenChoices();
     testFrameGenStatusLine();
     testFrameGenSelectable();
-    testFrameGenPanel();
     testObjectMotionPanel();
-    testFrameGenDlaaRoundTrip();
     testAnisotropyPanel();
     testWindowSizeLabels();
     testWindowSizePanel();

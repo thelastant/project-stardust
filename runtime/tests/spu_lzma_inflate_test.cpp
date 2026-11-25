@@ -18,6 +18,11 @@ int main(int argc, char** argv) {
         return 2;
     }
     namespace fixture = sshd::lzma_fixture;
+    // 77 is CTest's SKIP_RETURN_CODE: this game folder has no TLFILE.TLDAT to inflate.
+    if (!std::filesystem::exists(fixture::tldatPath(argv[1]))) {
+        std::fprintf(stderr, "skipped: no TLFILE.TLDAT in %s\n", argv[1]);
+        return 77;
+    }
     fixture::Fixture lzma;
     if (!lzma.init(argv[1], argv[2])) return 1;
     fixture::Inflate run;

@@ -345,7 +345,10 @@ class FindCodeRangeTest(unittest.TestCase):
         self.assertEqual(cell.find_code_range(elf), (0x10000, 0x10080))
 
 
-@unittest.skipUnless(os.environ.get("SSHD_EBOOT_ELF"), "SSHD_EBOOT_ELF is not set")
+@unittest.skipUnless(
+    os.environ.get("SSHD_EBOOT_ELF") and os.environ.get("SSHD_REAL_EBOOT_TESTS") == "1",
+    "reference EBOOT tests need SSHD_EBOOT_ELF and SSHD_REAL_EBOOT_TESTS=1",
+)
 class RealEbootCellTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

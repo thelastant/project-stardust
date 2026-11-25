@@ -53,8 +53,17 @@ function(sshd_runtime_add_libpng)
   set(PNG_FRAMEWORK OFF CACHE BOOL "" FORCE)
   set(PNG_TESTS OFF CACHE BOOL "" FORCE)
   set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
-  set(PNG_LIBCONF_HEADER
-    ${CMAKE_SOURCE_DIR}/externals/libpng/scripts/pnglibconf.h.prebuilt CACHE FILEPATH "" FORCE)
+  # libpng keeps the prebuilt libconf at scripts/ in releases and at the package root in newer
+  # snapshots; accept either so a submodule bump does not break configuration.
+  set(png_libconf ${CMAKE_SOURCE_DIR}/externals/libpng/scripts/pnglibconf.h.prebuilt)
+  if(NOT EXISTS "${png_libconf}")
+    set(png_libconf ${CMAKE_SOURCE_DIR}/externals/libpng/pnglibconf.h.prebuilt)
+  endif()
+  if(NOT EXISTS "${png_libconf}")
+    message(FATAL_ERROR
+      "SSHD: externals/libpng has no pnglibconf.h.prebuilt. Run: git submodule update --init")
+  endif()
+  set(PNG_LIBCONF_HEADER ${png_libconf} CACHE FILEPATH "" FORCE)
   set(ld-version-script OFF CACHE BOOL "" FORCE)
   set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
   add_subdirectory(${CMAKE_SOURCE_DIR}/externals/libpng

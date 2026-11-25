@@ -1,20 +1,57 @@
 # Building
 
+## What the command-line builder downloads
+
+The command-line builder runs the following pinned dependency fetchers:
+
+- `tools/fetch-toolchain.ps1` — LLVM/Clang, CMake and Ninja, pinned in `tools/toolchain.json`
+  with each asset's SHA-256, extracted under `tools/toolchain/`;
+- `tools/fetch-ffmpeg.ps1` — the pinned FFmpeg package;
+- `tools/fetch-gameinput.ps1` — the pinned Microsoft GameInput package.
+
+Everything lands in ignored local folders (`tools/toolchain/`, `generated/deps/`). If the firmware
+key source is not already present, the CMake configuration downloads the pinned copy recorded in
+`THIRD_PARTY_NOTICES.md`. The project does not bundle game or firmware files.
+
+Manual builds can pass `-From` to the FFmpeg and GameInput scripts to use a saved archive, and
+`-Offline` to `tools/build.ps1` to prohibit every download.
+
+The Windows build still needs Visual Studio 2026 with the C++ tools and Windows SDK (the DevShell
+supplies the SDK headers, libraries and CRT) and a LunarG Vulkan SDK that provides
+`shaderc_combined.lib` and `shaderc.hpp`. Those are not redistributed here.
+
 The [top-level README](../README.md) shows the build steps. This page lists
 every parameter of the build scripts (`tools/build.ps1` on Windows, `tools/build.sh` on macOS), the CMake
 variables behind them, and the commands for the test runs. The Windows instructions come first;
 [Building on macOS](#building-on-macos) has the macOS ones.
 
+## Windows requirements
+
+| Component | Why | How |
+| --- | --- | --- |
+| Visual Studio 2026, C++ tools, Windows SDK | DevShell environment: SDK headers, import libraries and CRT | Install the Visual Studio Installer workload "Desktop development with C++" |
+| LunarG Vulkan SDK | `shaderc_combined.lib`, `shaderc.hpp`; set `VULKAN_SDK` | <https://vulkan.lunarg.com/sdk/home> |
+| PowerShell 7, Git | Build scripts, submodules | `winget install Microsoft.PowerShell Git.Git` |
+| Python 3.10+ | Conversion and build scripts | <https://www.python.org/downloads/> |
+| LLVM/Clang, CMake, Ninja | Compiler and build system | `pwsh -File tools/fetch-toolchain.ps1` |
+
+`tools/build.ps1` finds Visual Studio through `vswhere.exe` (part of the Visual Studio Installer), so
+the `VSSetup` PowerShell module is not required. It prepends the fetched toolchain from
+`tools/toolchain/bin-paths.json` to `PATH`, which keeps the machine's own tools untouched.
+
 ## `tools/build.ps1`
 
 ```powershell
-pwsh -NoProfile -File tools/build.ps1 [-Preset debug|release|profile|release-wwoff] [-Clean] [-Test]
+pwsh -NoProfile -File tools/build.ps1 [-Preset debug|release|setup-release|profile|release-wwoff]
+     [-Offline] [-Clean] [-Test]
      [-GeneratedDir <dir>] [-GameDir <dir>] [-EbootElf <path>] [-LlvmBin <dir>]
      [-EbootBin <path>] [-Pup <path>] [-Rpcs3CryptoDir <dir>]
 ```
 
 The script enters the Visual Studio developer shell itself unless it is already running in one,
-then configures, builds, and optionally runs CTest.
+then configures, builds, and optionally runs CTest. `-Offline` sets `SSHD_OFFLINE_BUILD=ON`;
+missing RPCS3 keys become an error instead of being downloaded, and the optional UI font is not
+fetched.
 
 | Parameter | Meaning |
 | --- | --- |

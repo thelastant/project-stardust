@@ -263,6 +263,7 @@ std::expected<PadScript, std::string> parsePadScript(std::string_view text) {
         pos = newline == std::string_view::npos ? text.size() + 1 : newline + 1;
         line_number++;
 
+        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
         line = line.substr(0, line.find('#'));
         const std::vector<std::string_view> tokens = splitTokens(line);
         if (tokens.empty()) continue;

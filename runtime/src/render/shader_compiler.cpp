@@ -29,8 +29,9 @@ std::atomic<std::uint64_t> g_compiles{0};
 std::filesystem::path cacheFilePath(const std::filesystem::path& dir, ShaderStage stage, std::uint64_t cache_key,
                                     std::string_view glsl) {
     const std::uint64_t glsl_hash = rsxHash64(reinterpret_cast<const std::uint8_t*>(glsl.data()), glsl.size());
-    return dir / std::format("{}_{:016x}_{:016x}_{}.spv", stage == ShaderStage::Vertex ? "vert" : "frag", cache_key,
-                             glsl_hash, kTranslatorVersion);
+    const char* stage_name = stage == ShaderStage::Vertex ? "vert" :
+                             stage == ShaderStage::Fragment ? "frag" : "comp";
+    return dir / std::format("{}_{:016x}_{:016x}_{}.spv", stage_name, cache_key, glsl_hash, kTranslatorVersion);
 }
 
 bool readCache(const std::filesystem::path& path, std::vector<std::uint32_t>& out) {
@@ -108,8 +109,9 @@ std::expected<std::vector<std::uint32_t>, std::string> compileGlsl(ShaderStage s
     g_compiles.fetch_add(1, std::memory_order_relaxed);
     const shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(
             glsl.data(), glsl.size(),
-            stage == ShaderStage::Vertex ? shaderc_glsl_vertex_shader : shaderc_glsl_fragment_shader, "shader.glsl",
-            options);
+            stage == ShaderStage::Vertex ? shaderc_glsl_vertex_shader :
+            stage == ShaderStage::Fragment ? shaderc_glsl_fragment_shader : shaderc_glsl_compute_shader,
+            "shader.glsl", options);
     if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
         return std::unexpected(result.GetErrorMessage());
     }

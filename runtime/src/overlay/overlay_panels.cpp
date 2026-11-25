@@ -159,33 +159,6 @@ void drawAntiAliasing(OverlayState& state, const OverlaySources& sources) {
     ImGui::EndDisabled();
 }
 
-// Listed only where the device and the presenter can run frame generation. Same pending-request display as the scale
-// combo. Without DLAA it is drawn disabled and the saved target stays as it is, so it applies again when DLAA returns.
-void drawFrameGen(OverlayState& state, const OverlaySources& sources) {
-    if (!state.frame_gen_supported) return;
-    const bool selectable = frameGenSelectable(state);
-    const FrameGenTarget shown = state.frame_gen_request ? *state.frame_gen_request : state.frame_gen_target;
-    ImGui::BeginDisabled(!selectable);
-    if (ImGui::BeginCombo("Frame generation", frameGenItemLabel(shown).c_str())) {
-        for (const FrameGenTarget target : frameGenChoices(state)) {
-            if (ImGui::Selectable(frameGenItemLabel(target).c_str(), target == shown) && target != shown) {
-                state.frame_gen_request = target;
-                if (sources.setting_changed) {
-                    sources.setting_changed(OverlaySetting::FrameGen, frameGenTargetName(target));
-                }
-            }
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::EndDisabled();
-    if (!selectable) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", std::string(frameGenDisabledNote(state)).c_str());
-    }
-    const std::string status = frameGenStatusLine(state);
-    if (!status.empty()) ImGui::TextWrapped("%s", status.c_str());
-}
-
 // Listed only where the device can write object motion. Disabled without DLAA, keeping its value.
 void drawObjectMotion(OverlayState& state, const OverlaySources& sources) {
     if (!state.object_motion_supported) return;
@@ -275,8 +248,7 @@ const char* flipLimitLabel(RsxFlipLimit limit) {
     return "?";
 }
 
-// Upscaling entry point. Only DLAA is wired (it is the same AaMode the anti-aliasing combo sets); the DLSS and
-// FSR entries are listed but disabled, because this build has no super-resolution backend for them.
+// Upscaling entry point. Only DLAA is wired (it is the same AaMode the anti-aliasing combo sets).
 void drawUpscaling(OverlayState& state, const OverlaySources& sources) {
     const std::optional<AaMode> shown = state.aa_mode_request ? state.aa_mode_request : state.aa_mode;
     const char* preview = !shown.has_value() ? "n/a" : *shown == AaMode::Dlaa ? "DLAA" : "Off";
@@ -295,11 +267,6 @@ void drawUpscaling(OverlayState& state, const OverlaySources& sources) {
                 if (sources.setting_changed) sources.setting_changed(OverlaySetting::AaMode, aaModeName(AaMode::Dlaa));
             }
         }
-        ImGui::EndDisabled();
-        ImGui::BeginDisabled(true);
-        ImGui::Selectable("DLSS (not in this build)");
-        ImGui::Selectable("FSR 3 (not in this build)");
-        ImGui::Selectable("FSR-CAS (not in this build)");
         ImGui::EndDisabled();
         ImGui::EndCombo();
     }
@@ -332,6 +299,8 @@ void drawSettings(OverlayState& state, const OverlaySources& sources) {
             if (ImGui::Selectable(kLogLevelNames[static_cast<std::size_t>(i)], i == level)) {
                 state.log_level = static_cast<LogLevel>(i);
                 sources.set_log_level(state.log_level);
+                if (sources.setting_changed)
+                    sources.setting_changed(OverlaySetting::LogLevel, kLogLevelNames[static_cast<std::size_t>(i)]);
             }
         }
         ImGui::EndCombo();
@@ -341,17 +310,10 @@ void drawSettings(OverlayState& state, const OverlaySources& sources) {
     drawResolutionScale(state, sources);
     drawUpscaling(state, sources);
     drawAntiAliasing(state, sources);
-    drawFrameGen(state, sources);
     drawObjectMotion(state, sources);
     drawAnisotropy(state, sources);
     drawWindowSize(state, sources);
 
-    // Not wired to anything yet; shown so the layout of the finished panel is visible.
-    ImGui::SeparatorText("(not implemented)");
-    ImGui::BeginDisabled();
-    float volume = 1.0f;
-    ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f");
-    ImGui::EndDisabled();
 }
 
 void drawCapture(OverlayState& state, const OverlaySources& sources) {

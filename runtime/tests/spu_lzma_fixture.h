@@ -135,12 +135,24 @@ struct Inflate {
     std::uint64_t cycles = 0;                    // thread cycles inside the runSpu calls (calling thread)
 };
 
+// The TLZC item the tests use. A disc dump keeps it under PS3_GAME/USRDIR; the installed layout
+// used by the launcher keeps USRDIR directly under the game folder.
+inline std::filesystem::path tldatPath(const std::filesystem::path& game_dir) {
+    std::filesystem::path path = game_dir / "USRDIR" / "TLFILE.TLDAT";
+    if (!std::filesystem::exists(path)) {
+        path = game_dir / "PS3_GAME" / "USRDIR" / "TLFILE.TLDAT";
+    }
+    return path;
+}
+
 class Fixture {
 public:
     // Reads the item, loads the executable into the process, registers the SPU images and checks the task image.
     // Process-wide state is touched, so one Fixture per process.
     bool init(const std::filesystem::path& game_dir, const std::filesystem::path& eboot_elf) {
-        const std::filesystem::path tldat = game_dir / "PS3_GAME" / "USRDIR" / "TLFILE.TLDAT";
+        // The installed layout keeps USRDIR directly under the game folder; a disc dump nests it
+        // under PS3_GAME. Accept either, like the runtime's --game-dir mount.
+        const std::filesystem::path tldat = tldatPath(game_dir);
 
         installProcessSettings();
         if (!readItem(tldat, &item_)) return false;

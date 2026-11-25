@@ -28,6 +28,7 @@ function(sshd_bench_add)
               --iterations 2 --warmup 1)
     set_tests_properties(bench_spu_lzma PROPERTIES
       PASS_REGULAR_EXPRESSION "bench spu-lzma: 2 iterations \\(1 warm-up\\), median [0-9]+ cycles .*; check ok"
+      SKIP_RETURN_CODE 77
       TIMEOUT 120)
   endif()
 

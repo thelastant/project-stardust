@@ -1,10 +1,11 @@
 #Requires -Version 7
 [CmdletBinding()]
 param(
-    [ValidateSet('debug', 'release', 'profile', 'release-wwoff')]
+    [ValidateSet('debug', 'release', 'setup-release', 'profile', 'release-wwoff')]
     [string]$Preset = 'debug',
     [switch]$Clean,
     [switch]$Test,
+    [switch]$Offline,
     [string]$EbootElf,
     [string]$GeneratedDir,
     [string]$GameDir,
@@ -18,19 +19,42 @@ $ErrorActionPreference = 'Stop'
 
 # The Windows SDK environment comes from the VS DevShell; skip if already inside one.
 if (-not $env:VSCMD_VER) {
-    if (-not (Get-Module -ListAvailable -Name VSSetup)) {
-        throw "Install-Module VSSetup -Scope CurrentUser"
+    $vsPath = $null
+    $vsId = $null
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+    if (Test-Path -LiteralPath $vswhere) {
+        $requires = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+        $vsPath = (& $vswhere -latest -version '[18.0,19.0)' -products * -requires $requires -property installationPath)
+        $vsId = (& $vswhere -latest -version '[18.0,19.0)' -products * -requires $requires -property instanceId)
+        if ($vsPath) { $vsPath = $vsPath.Trim() }
+        if ($vsId) { $vsId = $vsId.Trim() }
     }
-    Import-Module VSSetup
-    $vsInstance = Get-VSSetupInstance | Select-VSSetupInstance -Version '[18.0,19.0)'
-    if ($null -eq $vsInstance) {
-        throw "Visual Studio 18.x (VS 2026) with the Windows SDK was not found."
+    if (-not $vsPath -or -not $vsId) {
+        if (-not (Get-Module -ListAvailable -Name VSSetup)) {
+            throw "Visual Studio 18.x (VS 2026) with the C++ tools and Windows SDK was not found. Install it, or add the VSSetup module: Install-Module VSSetup -Scope CurrentUser"
+        }
+        Import-Module VSSetup
+        $vsInstance = Get-VSSetupInstance | Select-VSSetupInstance -Version '[18.0,19.0)'
+        if ($null -eq $vsInstance) {
+            throw "Visual Studio 18.x (VS 2026) with the Windows SDK was not found."
+        }
+        $vsPath = $vsInstance.InstallationPath
+        $vsId = $vsInstance.InstanceId
     }
-    Import-Module (Join-Path $vsInstance.InstallationPath "Common7/Tools/Microsoft.VisualStudio.DevShell.dll")
-    Enter-VsDevShell $vsInstance.InstanceId -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+    Import-Module (Join-Path $vsPath "Common7/Tools/Microsoft.VisualStudio.DevShell.dll")
+    Enter-VsDevShell $vsId -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
 }
 
-# Prepended after the DevShell so it wins over the clang bundled with VS.
+# Prepended after the DevShell so bundled tools win over the ones it adds to PATH.
+$toolchainPins = Join-Path $PSScriptRoot 'toolchain/bin-paths.json'
+if (Test-Path -LiteralPath $toolchainPins) {
+    $toolchainBins = @(Get-Content -LiteralPath $toolchainPins -Raw | ConvertFrom-Json)
+    foreach ($bin in $toolchainBins) {
+        if ($bin -and (Test-Path -LiteralPath $bin -PathType Container)) {
+            $env:PATH = "$bin$([System.IO.Path]::PathSeparator)$env:PATH"
+        }
+    }
+}
 if ($LlvmBin) {
     $env:PATH = "$LlvmBin$([System.IO.Path]::PathSeparator)$env:PATH"
 }
@@ -82,6 +106,9 @@ try {
     }
     if ($Pup) {
         $configureArgs += "-DSSHD_PUP=$Pup"
+    }
+    if ($Offline) {
+        $configureArgs += "-DSSHD_OFFLINE_BUILD=ON"
     }
     if ($Rpcs3CryptoDir) {
         $configureArgs += "-DSSHD_RPCS3_CRYPTO_DIR=$Rpcs3CryptoDir"

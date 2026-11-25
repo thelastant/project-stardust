@@ -34,6 +34,12 @@ function(sshd_resolve_rpcs3_keys)
     return()
   endif()
 
+  if(SSHD_OFFLINE_BUILD)
+    message(FATAL_ERROR
+      "SSHD: offline build needs SSHD_RPCS3_CRYPTO_DIR with key_vault.h and key_vault.cpp; "
+      "network access is disabled.")
+  endif()
+
   set(keys_dir "${CMAKE_SOURCE_DIR}/generated/deps/rpcs3/${SSHD_RPCS3_KEYS_COMMIT}")
   foreach(name pin IN ZIP_LISTS key_files key_pins)
     set(file "${keys_dir}/${name}")

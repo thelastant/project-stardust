@@ -18,8 +18,16 @@ from ps3recomp.info import REPO_ROOT
 
 _EBOOT = os.environ.get("SSHD_EBOOT_ELF")
 _LIBSRE = os.environ.get("SSHD_LIBSRE_ELF")
-_SKIP_REASON = "SSHD_EBOOT_ELF and SSHD_LIBSRE_ELF must name existing files"
-_AVAILABLE = bool(_EBOOT and _LIBSRE and Path(_EBOOT).is_file() and Path(_LIBSRE).is_file())
+_SKIP_REASON = (
+    "the reference SPU dataset needs SSHD_EBOOT_ELF, SSHD_LIBSRE_ELF and SSHD_REAL_EBOOT_TESTS=1"
+)
+_AVAILABLE = bool(
+    os.environ.get("SSHD_REAL_EBOOT_TESTS") == "1"
+    and _EBOOT
+    and _LIBSRE
+    and Path(_EBOOT).is_file()
+    and Path(_LIBSRE).is_file()
+)
 
 _DB_DIR = REPO_ROOT / "config" / "spu"
 # Every registry image is emitted and gated.

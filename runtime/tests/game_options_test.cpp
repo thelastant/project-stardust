@@ -137,10 +137,10 @@ void testPaths() {
     const auto utf8 = parse("{\"elf\": \"caf\xC3\xA9/\xE3\x82\xB2\xE3\x83\xBC\xE3\x83\xA0.elf\"}");
     CHECK(utf8 && utf8->values.size() == 1);
     if (utf8 && utf8->values.size() == 1) {
-        CHECK(utf8->values[0].path == (kBase / stdfs::path(u8"café") / stdfs::path(u8"ゲーム.elf")).lexically_normal());
+        CHECK(utf8->values[0].path == (kBase / stdfs::path(u8"caf\u00E9") / stdfs::path(u8"\u30B2\u30FC\u30E0.elf")).lexically_normal());
     }
     // The same text spelled as JSON escapes gives the same path.
-    const auto escaped = parse(R"({"elf": "café/ゲーム.elf"})");
+    const auto escaped = parse(R"({"elf": "caf\u00E9/\u30B2\u30FC\u30E0.elf"})");
     CHECK(escaped && utf8 && escaped->values.size() == 1 && utf8->values.size() == 1 &&
           escaped->values[0].path == utf8->values[0].path);
 
@@ -508,12 +508,14 @@ void testOptionTable() {
     for (const OptionSpec& spec : specs) {
         if (spec.persisted) persisted.push_back(spec.name);
     }
-    CHECK((persisted == std::vector<std::string_view>{"frame-limit", "resolution-scale", "aa-mode", "object-motion",
-                                                      "anisotropic-filter", "window-size", "fullscreen", "frame-gen"}));
+    CHECK((persisted == std::vector<std::string_view>{"log-level", "frame-limit", "resolution-scale", "aa-mode",
+                                                      "object-motion", "anisotropic-filter", "window-size",
+                                                      "fullscreen"}));
     for (const OptionSpec& spec : specs) {
         if (spec.name == "vk-driver") CHECK(spec.kind == OptionKind::String && !spec.persisted);
     }
     for (const OptionSpec& spec : specs) {
+        if (spec.name == "log-level") CHECK(spec.kind == OptionKind::String && spec.needs == OptionNeeds::Nothing);
         if (spec.name == "frame-limit") CHECK(spec.kind == OptionKind::String && spec.needs == OptionNeeds::Nothing);
         if (spec.name == "resolution-scale") {
             CHECK(spec.kind == OptionKind::Unsigned && spec.needs == OptionNeeds::Renderer);
@@ -527,11 +529,6 @@ void testOptionTable() {
         }
         if (spec.name == "window-size") CHECK(spec.kind == OptionKind::String && spec.needs == OptionNeeds::Window);
         if (spec.name == "fullscreen") CHECK(spec.kind == OptionKind::Switch && spec.needs == OptionNeeds::Window);
-        if (spec.name == "frame-gen") CHECK(spec.kind == OptionKind::String && spec.needs == OptionNeeds::Window);
-        if (spec.name == "fg-present-mode") CHECK(spec.kind == OptionKind::String && !spec.persisted);
-        if (spec.name == "fg-reflex") CHECK(spec.kind == OptionKind::Switch && !spec.persisted);
-        if (spec.name == "fg-only-generated") CHECK(spec.kind == OptionKind::Flag && !spec.persisted);
-        if (spec.name == "fg-cycle") CHECK(spec.kind == OptionKind::Unsigned && !spec.persisted);
         if (spec.name == "rsx-capture") CHECK(spec.kind == OptionKind::FrameList);
         if (spec.name == "dump-guest") CHECK(spec.kind == OptionKind::StringList);
         if (spec.name == "spu-capture") CHECK(spec.kind == OptionKind::StringList && !spec.persisted);
@@ -546,8 +543,7 @@ void testOptionTable() {
                 spec.name == "dump-frames" || spec.name == "dump-frames-every" || spec.name == "shader-cache" ||
                 spec.name == "vk-validation" || spec.name == "resolution-scale" || spec.name == "aa-mode" ||
                 spec.name == "object-motion" || spec.name == "anisotropic-filter" || spec.name == "vk-driver";
-        const bool window = spec.name == "pad-probe" || spec.name == "window-size" || spec.name == "fullscreen" ||
-                            spec.name == "frame-gen" || spec.name.starts_with("fg-");
+        const bool window = spec.name == "pad-probe" || spec.name == "window-size" || spec.name == "fullscreen";
         const OptionNeeds expected = renderer ? OptionNeeds::Renderer
                                      : window ? OptionNeeds::Window
                                               : OptionNeeds::Nothing;
@@ -557,13 +553,11 @@ void testOptionTable() {
     CHECK(sshd::gameOptionsUsage().find("--config FILE | --no-config") != std::string_view::npos);
     CHECK(sshd::gameOptionsUsage().find("[--anisotropic-filter off|2|4|8|16]") != std::string_view::npos);
     CHECK(sshd::gameOptionsUsage().find("[--vk-driver auto|moltenvk|kosmickrisp]") != std::string_view::npos);
-    CHECK(sshd::gameOptionsUsage().find("[--window-size 720p|1080p|1440p|2160p]") != std::string_view::npos);
+    CHECK(sshd::gameOptionsUsage().find("[--window-size 540p|720p|900p|1080p|1440p|2160p]") != std::string_view::npos);
     CHECK(sshd::gameOptionsUsage().find("[--fullscreen on|off]") != std::string_view::npos);
     CHECK(sshd::gameOptionsUsage().find("[--object-motion on|off]") != std::string_view::npos);
-    CHECK(sshd::gameOptionsUsage().find("[--frame-gen off|60|90|120|180|unlimited]") != std::string_view::npos);
-    CHECK(sshd::gameOptionsUsage().find("[--fg-present-mode mailbox|immediate|fifo]") != std::string_view::npos);
-    CHECK(sshd::gameOptionsUsage().find("[--fg-reflex on|off] [--fg-only-generated]") != std::string_view::npos);
-    CHECK(sshd::gameOptionsUsage().find("[--fg-cycle SECONDS]") != std::string_view::npos);
+    CHECK(sshd::gameOptionsUsage().find("frame-gen") == std::string_view::npos);
+    CHECK(sshd::gameOptionsUsage().find("--fg-") == std::string_view::npos);
     CHECK(sshd::gameOptionsUsage().find("[--spu-capture IMAGE:S[+S...]:E[:dispatches=N]]...") !=
           std::string_view::npos);
     CHECK(sshd::gameOptionsUsage().find("[--spu-capture-dir DIR]") != std::string_view::npos);
@@ -589,9 +583,6 @@ void testDefaultLines() {
         CHECK(!windowed->save_dialog && windowed->ui_font.empty());
         CHECK(windowed->anisotropy == 1 && windowed->window_size == sshd::WindowSizePreset::Size720p &&
               !windowed->fullscreen);
-        CHECK(windowed->frame_gen == sshd::FrameGenTarget::Off &&
-              windowed->fg_present_mode == sshd::FgPresentMode::Mailbox && windowed->fg_reflex &&
-              !windowed->fg_only_generated && windowed->fg_cycle_seconds == 0);
         CHECK(windowed->spu_captures.empty() && windowed->spu_capture.dir.empty() &&
               windowed->spu_capture.after_seconds == 0 && windowed->spu_capture.count == 4 &&
               windowed->spu_capture.every == 1);
@@ -729,7 +720,8 @@ void testErrorMessages() {
                        "error: --resolution-scale needs a whole number from 1 to 4\n"));
     CHECK(rejectedLine({"--game-dir", "g", "--resolution-scale", "x"},
                        "error: --resolution-scale needs a whole number from 1 to 4\n"));
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-limit", "30"}, "error: --frame-limit needs vsync, 60 or off\n"));
+    CHECK(rejectedLine({"--game-dir", "g", "--frame-limit", "45"},
+                       "error: --frame-limit needs vsync, 30, 60, 72, 90, 120, 144, 165, 240 or off\n"));
     CHECK(rejectedLine({"--game-dir", "g", "--bogus"}, "error: unknown argument --bogus\n"));
     CHECK(rejectedLine({"--game-dir", "g", "stray"}, "error: unknown argument stray\n"));
     CHECK(rejectedLine({"--game-dir", "g", "--lwmutex-watch", "extra"}, "error: unknown argument extra\n"));
@@ -886,7 +878,8 @@ void testConfigFileValues() {
     ConfigDirs dirs("sshd_game_options_cfg_values_");
     const stdfs::path file = dirs.work / "config.json";
     writeFile(file,
-              R"({"game_dir": "g", "elf": "bin/e.elf", "resolution_scale": 2, "frame_limit": 60, "strict": true,
+              R"({"game_dir": "g", "elf": "bin/e.elf", "resolution_scale": 2, "frame_limit": 60,
+                  "log_level": "trace", "strict": true,
                   "seconds": 7, "rsx_capture": "1,2", "dump_guest": ["0x1000:16:a.bin"], "my_note": "keep",
                   "spu_capture": ["eboot_skin:4cdc:5710"], "spu_capture_dir": "caps", "spu_capture_count": 2})");
 
@@ -896,6 +889,7 @@ void testConfigFileValues() {
         // Paths of the file resolve against its directory, so a file used from any working directory works.
         CHECK(samePath(opt->game_dir, dirs.work / "g") && samePath(opt->elf, dirs.work / "bin" / "e.elf"));
         CHECK(opt->resolution_scale == 2 && opt->frame_limit == sshd::RsxFlipLimit::Hz60 && opt->strict);
+        CHECK(opt->log_level == sshd::LogLevel::Trace);
         CHECK(opt->seconds == 7 && opt->rsx_capture_frames == (std::vector<std::uint32_t>{1, 2}));
         CHECK(opt->dumps.size() == 1 && opt->dumps[0].file == "a.bin");
         CHECK(opt->spu_captures.size() == 1 && opt->spu_captures[0].image == "eboot_skin" &&
@@ -932,7 +926,7 @@ void testConfigFileValues() {
     // A non-ASCII path keeps its characters.
     writeFile(file, "{\"game_dir\": \"\xE3\x82\xB2\xE3\x83\xBC\xE3\x83\xA0\"}");
     const auto utf8 = dirs.parse({});
-    CHECK(utf8 && samePath(utf8->game_dir, dirs.work / stdfs::path(u8"ゲーム")));
+    CHECK(utf8 && samePath(utf8->game_dir, dirs.work / stdfs::path(u8"\u30B2\u30FC\u30E0")));
 
     // save_dialog and ui_font as keys; they stay in effect without a window, because main resolves them.
     writeFile(file, R"({"game_dir": "g", "save_dialog": "cancel", "ui_font": "fonts/x.ttf", "no_window": true})");
@@ -1149,7 +1143,9 @@ void testWindowAndFilterOptions() {
         CHECK(parsed && parsed->anisotropy == level);
     }
     for (const auto& [text, preset] :
-         {std::pair<const char*, sshd::WindowSizePreset>{"720p", sshd::WindowSizePreset::Size720p},
+         {std::pair<const char*, sshd::WindowSizePreset>{"540p", sshd::WindowSizePreset::Size540p},
+          {"720p", sshd::WindowSizePreset::Size720p},
+          {"900p", sshd::WindowSizePreset::Size900p},
           {"1080p", sshd::WindowSizePreset::Size1080p},
           {"1440p", sshd::WindowSizePreset::Size1440p},
           {"2160p", sshd::WindowSizePreset::Size2160p}}) {
@@ -1169,9 +1165,9 @@ void testWindowAndFilterOptions() {
     CHECK(rejectedLine({"--game-dir", "g", "--anisotropic-filter", "1"},
                        "error: --anisotropic-filter needs off, 2, 4, 8 or 16\n"));
     CHECK(rejectedLine({"--game-dir", "g", "--window-size", "1080P"},
-                       "error: --window-size needs 720p, 1080p, 1440p or 2160p\n"));
+                       "error: --window-size needs 540p, 720p, 900p, 1080p, 1440p or 2160p\n"));
     CHECK(rejectedLine({"--game-dir", "g", "--window-size", "4k"},
-                       "error: --window-size needs 720p, 1080p, 1440p or 2160p\n"));
+                       "error: --window-size needs 540p, 720p, 900p, 1080p, 1440p or 2160p\n"));
     CHECK(rejectedLine({"--game-dir", "g", "--fullscreen", "yes"}, "error: --fullscreen needs on or off\n"));
     CHECK(rejectedLine({"--game-dir", "g", "--fullscreen"}, "error: --fullscreen needs a value\n"));
 
@@ -1214,7 +1210,7 @@ void testWindowAndFilterOptions() {
     CHECK(dirs.error({}).message == "error: " + file.string() + ": anisotropic_filter needs off, 2, 4, 8 or 16\n");
     writeFile(file, R"({"game_dir": "g", "anisotropic_filter": "off", "window_size": "huge"})");
     const sshd::OptionsError bad_size = dirs.error({});
-    CHECK(bad_size.message == "error: " + file.string() + ": window_size needs 720p, 1080p, 1440p or 2160p\n" &&
+    CHECK(bad_size.message == "error: " + file.string() + ": window_size needs 540p, 720p, 900p, 1080p, 1440p or 2160p\n" &&
           !bad_size.print_usage);
     writeFile(file, R"({"game_dir": "g", "fullscreen": "maybe"})");
     CHECK(dirs.error({}).message.starts_with("error: " + file.string() + ": "));
@@ -1224,109 +1220,9 @@ void testWindowAndFilterOptions() {
     CHECK(over && over->window_size == sshd::WindowSizePreset::Size1080p && !over->fullscreen);
 }
 
-void testFrameGenOptions() {
-    using sshd::FrameGenTarget;
-    const std::vector<std::pair<const char*, FrameGenTarget>> targets = {
-            {"off", FrameGenTarget::Off},    {"60", FrameGenTarget::Fps60},   {"90", FrameGenTarget::Fps90},
-            {"120", FrameGenTarget::Fps120}, {"180", FrameGenTarget::Fps180}, {"unlimited", FrameGenTarget::Unlimited}};
-    ConfigDirs dirs("sshd_game_options_cfg_frame_gen_");
-    const stdfs::path file = dirs.work / "config.json";
-    for (const auto& [text, target] : targets) {
-        const auto cli = parseLine({"--game-dir", "g", "--frame-gen", text});
-        CHECK(cli && cli->frame_gen == target);
-        writeFile(file, std::string(R"({"game_dir": "g", "frame_gen": ")") + text + "\"}");
-        const auto saved = dirs.parse({});
-        CHECK(saved && saved->frame_gen == target && saved->config_ignored.empty());
-    }
-    // A number in the file reads like the string, and the command line replaces the file's value.
-    writeFile(file, R"({"game_dir": "g", "frame_gen": 90})");
-    const auto numeric = dirs.parse({});
-    CHECK(numeric && numeric->frame_gen == FrameGenTarget::Fps90);
-    const auto over = dirs.parse({"--frame-gen", "unlimited"});
-    CHECK(over && over->frame_gen == FrameGenTarget::Unlimited);
-    const auto last = parseLine({"--game-dir", "g", "--frame-gen", "60", "--frame-gen", "180"});
-    CHECK(last && last->frame_gen == FrameGenTarget::Fps180);
-
-    // Not a target: the message names the values, on the command line and in the file.
-    const std::string names = "off|60|90|120|180|unlimited\n";
-    for (const char* bad : {"75", "", "Unlimited", " 60", "0", "on"}) {
-        CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", bad}, "error: --frame-gen needs " + names));
-    }
-    writeFile(file, R"({"game_dir": "g", "frame_gen": 75})");
-    const sshd::OptionsError bad_saved = dirs.error({});
-    CHECK(bad_saved.message == "error: " + file.string() + ": frame_gen needs " + names && !bad_saved.print_usage);
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen"}, "error: --frame-gen needs a value\n"));
-
-    // The target needs the window, as the window size does; a saved one is left out of a run without it.
-    const char* const need_window = "error: --frame-gen needs the window\n";
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "120", "--no-window"}, need_window));
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "off", "--no-window"}, need_window));
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "120", "--render", "none"}, need_window));
-    writeFile(file, R"({"game_dir": "g", "frame_gen": "120"})");
-    const auto headless = dirs.parse({"--no-window"});
-    CHECK(headless && headless->frame_gen == FrameGenTarget::Off);
-    if (headless) {
-        CHECK(headless->config_ignored == std::vector<std::string>{"frame_gen ignored: the run has no window"});
-    }
-    CHECK(dirs.error({"--no-window", "--frame-gen", "120"}).print_usage);
-    // A bad saved value that is left out is not reported.
-    writeFile(file, R"({"game_dir": "g", "frame_gen": 75})");
-    CHECK(dirs.parse({"--no-window"}).has_value());
-
-    // The diagnostics.
-    const auto diag = parseLine({"--game-dir", "g", "--frame-gen", "120", "--fg-present-mode", "immediate",
-                                 "--fg-reflex", "off", "--fg-only-generated", "--fg-cycle", "10"});
-    CHECK(diag && diag->frame_gen == FrameGenTarget::Fps120 &&
-          diag->fg_present_mode == sshd::FgPresentMode::Immediate && !diag->fg_reflex && diag->fg_only_generated &&
-          diag->fg_cycle_seconds == 10);
-    for (const auto& [text, mode] : {std::pair<const char*, sshd::FgPresentMode>{"fifo", sshd::FgPresentMode::Fifo},
-                                     {"mailbox", sshd::FgPresentMode::Mailbox},
-                                     {"immediate", sshd::FgPresentMode::Immediate}}) {
-        const auto parsed = parseLine({"--game-dir", "g", "--frame-gen", "60", "--fg-present-mode", text});
-        CHECK(parsed && parsed->fg_present_mode == mode);
-    }
-    for (const auto& [text, seconds] : {std::pair<const char*, std::uint32_t>{"1", 1}, {"600", 600}}) {
-        const auto parsed = parseLine({"--game-dir", "g", "--frame-gen", "unlimited", "--fg-cycle", text});
-        CHECK(parsed && parsed->fg_cycle_seconds == seconds);
-    }
-    const auto reflex_on = parseLine({"--game-dir", "g", "--frame-gen", "60", "--fg-reflex", "on"});
-    CHECK(reflex_on && reflex_on->fg_reflex);
-
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "120", "--fg-present-mode", "vsync"},
-                       "error: --fg-present-mode needs fifo|mailbox|immediate\n"));
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "120", "--fg-reflex", "1"},
-                       "error: --fg-reflex needs on or off\n"));
-    for (const char* cycle : {"0", "601", "x", "-1", ""}) {
-        CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "120", "--fg-cycle", cycle},
-                           "error: --fg-cycle needs a whole number from 1 to 600\n"));
-    }
-
-    // Each diagnostic needs a target other than off, given or absent.
-    const std::string needs_target =
-            "error: --fg-present-mode, --fg-reflex, --fg-only-generated and --fg-cycle need --frame-gen other than "
-            "off\n";
-    const std::vector<std::vector<std::string>> diagnostics = {
-            {"--fg-present-mode", "mailbox"}, {"--fg-reflex", "on"}, {"--fg-only-generated"}, {"--fg-cycle", "5"}};
-    for (const std::vector<std::string>& diagnostic : diagnostics) {
-        std::vector<std::string> line = {"--game-dir", "g"};
-        line.insert(line.end(), diagnostic.begin(), diagnostic.end());
-        CHECK(rejectedLine(line, needs_target));
-        line.insert(line.end(), {"--frame-gen", "off"});
-        CHECK(rejectedLine(line, needs_target));
-    }
-    // A saved target satisfies a diagnostic, and the command line's off does not.
-    writeFile(file, R"({"game_dir": "g", "frame_gen": "90"})");
-    const auto saved_target = dirs.parse({"--fg-cycle", "5"});
-    CHECK(saved_target && saved_target->frame_gen == FrameGenTarget::Fps90 && saved_target->fg_cycle_seconds == 5);
-    CHECK(dirs.error({"--frame-gen", "off", "--fg-cycle", "5"}).message ==
-          needs_target + "note: settings were also read from " + file.string() + "\n");
-    // An unattended run leaves the file's diagnostics out; on the command line one is still the mistake.
-    writeFile(file, R"({"game_dir": "g", "fg_cycle": 5, "fg_only_generated": true})");
-    const auto unattended = dirs.parse({"--no-window"});
-    CHECK(unattended && unattended->fg_cycle_seconds == 0 && !unattended->fg_only_generated &&
-          unattended->config_ignored.size() == 2);
-    CHECK(dirs.error({"--no-window", "--fg-cycle", "5"}).message.starts_with(needs_target));
-    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "120", "--fg-cycle", "5", "--no-window"}, need_window));
+void testFrameGenRemoved() {
+    CHECK(rejectedLine({"--game-dir", "g", "--frame-gen", "120"}, "error: unknown argument --frame-gen\n"));
+    CHECK(rejectedLine({"--game-dir", "g", "--fg-cycle", "5"}, "error: unknown argument --fg-cycle\n"));
 }
 
 void testObjectMotionOption() {
@@ -1649,7 +1545,7 @@ int main() {
     testConfigFileDroppedKeys();
     testWindowAndFilterOptions();
     testVkDriverOption();
-    testFrameGenOptions();
+    testFrameGenRemoved();
     testObjectMotionOption();
     testConfigApply();
     testSettingsStore();

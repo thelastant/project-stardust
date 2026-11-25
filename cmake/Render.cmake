@@ -166,24 +166,6 @@ function(sshd_render_add_streamline_runtime)
       VERBATIM)
     list(APPEND copied "${bin_dir}/${name}")
   endforeach()
-  # Frame generation is optional: a missing DLL only makes it unavailable at run time, DLAA is unaffected.
-  set(missing_frame_gen "")
-  foreach(name sl.dlss_g.dll sl.reflex.dll sl.pcl.dll nvngx_dlssg.dll)
-    if(NOT EXISTS "${sdk}/bin/x64/${name}")
-      list(APPEND missing_frame_gen "${name}")
-      continue()
-    endif()
-    add_custom_command(OUTPUT "${bin_dir}/${name}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${bin_dir}"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${sdk}/bin/x64/${name}" "${bin_dir}/${name}"
-      DEPENDS "${sdk}/bin/x64/${name}"
-      VERBATIM)
-    list(APPEND copied "${bin_dir}/${name}")
-  endforeach()
-  if(missing_frame_gen)
-    list(JOIN missing_frame_gen ", " missing_text)
-    message(STATUS "SSHD: Streamline: frame generation DLLs missing (${missing_text})")
-  endif()
   foreach(pair "license.txt|LICENSE.txt" "bin/x64/nvngx_dlss.license.txt|nvngx_dlss.license.txt"
                "3rd-party-licenses.md|3rd-party-licenses.md")
     string(REPLACE "|" ";" pair "${pair}")
@@ -271,6 +253,7 @@ function(sshd_render_add)
 
   add_test(NAME render_core COMMAND sshd_render_tests)
   set_tests_properties(render_core PROPERTIES
+    RESOURCE_LOCK stardust_heavy_render
     PASS_REGULAR_EXPRESSION
       "render tests: [0-9]+ passed, 0 failed|render tests: skipped: no Vulkan device")
 

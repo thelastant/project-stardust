@@ -928,7 +928,7 @@ void testWindowSizePresets() {
     CHECK(!sshd::parseWindowSize("").has_value());
     CHECK(!sshd::parseWindowSize("1080P").has_value());
     CHECK(!sshd::parseWindowSize("1080p ").has_value());
-    CHECK(!sshd::parseWindowSize("900p").has_value());
+    CHECK(!sshd::parseWindowSize("4320p").has_value());
     static_assert(sshd::presetClientSize(sshd::WindowSizePreset::Size720p) == sshd::ClientSize{1280, 720});
     static_assert(sshd::presetClientSize(sshd::WindowSizePreset::Size1080p) == sshd::ClientSize{1920, 1080});
     static_assert(sshd::presetClientSize(sshd::WindowSizePreset::Size1440p) == sshd::ClientSize{2560, 1440});

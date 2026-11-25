@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.29)
 
 project(SshdRecomp VERSION 0.1.0 LANGUAGES C CXX)
 
+option(SSHD_OFFLINE_BUILD "Do not download any dependencies during configuration" OFF)
+
 # Optional Clang instrumentation/PGO. Keep it off for normal builds; a trained profile can
 # specialize the large generated PPU/SPU trees as well as the hand-written runtime.
 option(SSHD_PGO_GENERATE "Instrument this build for profile-guided optimization" OFF)
@@ -111,7 +113,7 @@ if(TARGET sshd_game)
     add_custom_command(TARGET sshd_game POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:sshd_game>" "$<TARGET_FILE_DIR:sshd_game>/ssHD.exe"
-      COMMENT "Writing branded launcher ssHD.exe")
+      COMMENT "Writing game executable copy ssHD.exe")
   endif()
 endif()
 

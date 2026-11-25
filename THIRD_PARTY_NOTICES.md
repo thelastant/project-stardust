@@ -1,5 +1,22 @@
 # Third-party notices
 
+## AMD FidelityFX Super Resolution 1 sample sources (not integrated)
+
+The files below are derived from AMD GPUOpen's FidelityFX-FSR repository,
+<https://github.com/GPUOpen-Effects/FidelityFX-FSR>. They are retained as
+implementation groundwork only: the runtime does not compile or use them, and
+FSR is not an available graphics setting. Presentation still uses the existing
+linear blit. The upstream repository's canonical licence filename is
+`license.txt`; its MIT licence text is included in
+`runtime/src/render/fsr1/LICENSE.txt`. The shader headers also carry the
+applicable copyright and permission notice.
+
+| | |
+| --- | --- |
+| Source | <https://github.com/GPUOpen-Effects/FidelityFX-FSR> |
+| Files | `runtime/src/render/fsr1/ffx_a.h`, `ffx_fsr1.h`, and `FSR_Pass.glsl` |
+| Licence | MIT License, Copyright (c) 2021 Advanced Micro Devices, Inc. |
+
 ## Microsoft GameInput
 
 On Windows, gamepads are read with Microsoft's GameInput API (version 3). On macOS this package is
@@ -37,12 +54,12 @@ the gamepads are disabled; the keyboard keeps working.
 ## NVIDIA Streamline and DLSS
 
 On Windows, the optional DLAA anti-aliasing mode (`--aa-mode dlaa`) runs NVIDIA DLSS through the NVIDIA Streamline
-SDK, <https://github.com/NVIDIA-RTX/Streamline>, and the optional frame generation (`--frame-gen`) runs NVIDIA DLSS
-Frame Generation and NVIDIA Reflex through the same SDK. The macOS build does not use Streamline. The
+SDK, <https://github.com/NVIDIA-RTX/Streamline>. Frame generation has been removed from the game and is not loaded
+or shipped. The macOS build does not use Streamline. The
 SDK is not part of this repository: nothing from it is committed. `tools/fetch-streamline.ps1` downloads the pinned release into `externals/Streamline`
 (git-ignored) and verifies its SHA-256 (`-From <zip>` takes a local copy and applies the same check);
 the pin is in `cmake/streamline.cmake`. The build uses the SDK's headers at compile time and, when
-the SDK is present, copies four DLLs (eight with frame generation) and the licence texts next to the
+the SDK is present, copies four runtime DLLs and the licence texts next to the
 executables (`bin/` of the build directory, the licences under `bin/licenses/streamline/`).
 `SSHD_ENABLE_DLSS=OFF` builds without any of this.
 
@@ -50,9 +67,8 @@ executables (`bin/` of the build directory, the licences under `bin/licenses/str
 | --- | --- |
 | Version | Streamline 2.14.1 (`streamline-sdk-v2.14.1.zip`, SHA-256 `92c4d954631a1710da86ca3fa8d5034f2b9503838c95fc4ae977ae149319781b`) |
 | Source | <https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.1/streamline-sdk-v2.14.1.zip> |
-| Streamline itself: the headers (build time only) and `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `sl.reflex.dll`, `sl.pcl.dll` | MIT License, Copyright (c) 2023 NVIDIA CORPORATION (the SDK's `license.txt`, copied as `LICENSE.txt`) |
-| Runtime DLLs copied next to the executables | `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `nvngx_dlss.dll`; for frame generation `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, `nvngx_dlssg.dll` |
-| DLSS Frame Generation: `sl.dlss_g.dll` (a prebuilt plugin; its source is not in the SDK) and `nvngx_dlssg.dll` | No licence text of their own ships with them in the SDK. The build only copies them from the SDK the developer downloaded into the local build output; this project does not distribute build output, so it does not distribute these DLLs |
+| Streamline itself: headers (build time only) and runtime `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll` | MIT License, Copyright (c) 2023 NVIDIA CORPORATION (the SDK's `license.txt`, copied as `LICENSE.txt`) |
+| Runtime DLLs copied next to the executables | `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `nvngx_dlss.dll` |
 | DLSS runtime and `nvngx_dlss.dll` | NVIDIA RTX SDKs LICENSE (v. March 14, 2024) with the NVIDIA RTX supplement (the SDK's `bin/x64/nvngx_dlss.license.txt`, copied as `nvngx_dlss.license.txt`) |
 | SDK third-party components | `3rd-party-licenses.md` of the SDK (copied unchanged) |
 
@@ -81,15 +97,8 @@ themselves are authoritative:
   open source software license (one that requires, as a condition of use, modification or distribution, that
   the SDK be disclosed or distributed in source code form, licensed for making derivative works, or
   redistributable at no charge).
-- The SDK also ships `NvLowLatencyVk.dll` (NVIDIA Reflex), which `sl.common.dll` tries to load at
-  start-up. It is not copied: its licence, `bin/x64/reflex.license.txt`, lists only "the NVAPIs, .lib
-  and .h files, Linux wrapper, and samples" as distributable. On Vulkan, Streamline uses the driver's
-  `VK_NV_low_latency2` extension for Reflex, so frame generation does not need the file.
-  The Reflex SDK supplement in that file (v. December 9, 2020) also asks that a product attribute the use of the SDK with an
-  NVIDIA Reflex reference for the features developed with it. Frame generation needs Reflex, and this project
-  therefore names "NVIDIA Reflex" and "NVIDIA DLSS Frame Generation" in this file and in
-  [Frame generation](docs/rendering.md#frame-generation). The same attribution requirements as for DLSS, in
-  `nvngx_dlss.license.txt` above, apply to DLSS Frame Generation; the project has no splash screen or about box.
+- The SDK also contains optional Reflex and DLSS Frame Generation plugins. This game does not load or
+  redistribute those plugins.
 - `3rd-party-licenses.md` lists the third-party software that the SDK includes, with the licence of
   each.
 
@@ -104,8 +113,6 @@ is only ever loaded from there. Over-the-air updates and downloaded plugins are 
 Streamline preferences, so only the DLLs next to the executable are used, and Streamline's log output
 goes to the project log. If the DLLs are missing, unsigned, or the GPU or driver cannot run DLSS, DLAA is
 unavailable and the renderer falls back to `msaa` (or `supersample`); see [Rendering](docs/rendering.md#dlaa).
-Streamline loads the four frame generation DLLs from the same directory. If one is missing, frame generation is
-unavailable and DLAA is not affected.
 
 ## RPCS3 key files
 
@@ -140,8 +147,9 @@ this section describes that Windows distribution; "FFmpeg on macOS" at its end c
 
 | | |
 | --- | --- |
-| Version | FFmpeg `n9.0.2-22-g46d8f462ee` (release/9.0 branch, 22 commits after tag `n9.0.2`) |
-| Build | BtbN FFmpeg-Builds, `win64-lgpl-shared`, release `autobuild-2026-10-06-13-06` |
+| Version | FFmpeg `n9.0.2-963-g4d831360c9` (as identified by the upstream build release) |
+| Build | BtbN FFmpeg-Builds, `win64-lgpl-shared`, release `autobuild-2026-11-24-12-41` |
+| Archive SHA-256 | `471961ba38074215ffb4e94e3d90ead94886d59e67b24b7bf057d6b80adf9fe0` |
 | Licence | GNU Lesser General Public License, version 3 or later (see below) |
 
 ### Licence
@@ -168,12 +176,12 @@ game's music and sound effects (`cellAtrac`) are silent.
 ### Source code
 
 - FFmpeg source at the exact commit of the build:
-  <https://github.com/FFmpeg/FFmpeg/tree/46d8f462eeb87ee1f704d8c44a0ee24fca471ad1>
-  (commit `46d8f462eeb87ee1f704d8c44a0ee24fca471ad1`).
+  <https://github.com/FFmpeg/FFmpeg/tree/4d831360c9353b7499398ff6ee2430341502bbf4>
+  (commit `4d831360c9353b7499398ff6ee2430341502bbf4`).
 - Build scripts (toolchain, patches and the configuration of every bundled library) at the tag of
   the pinned release:
-  <https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-10-06-13-06>.
-- The pinned release: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-10-06-13-06>.
+  <https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-11-24-12-41>.
+- The pinned release: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-11-24-12-41>.
 
 ### Libraries bundled in the build
 

@@ -72,7 +72,8 @@ enum class OverlaySetting : std::uint8_t {
     Anisotropy,
     WindowSize,
     FrameGen,
-    ObjectMotion
+    ObjectMotion,
+    LogLevel
 };
 
 // Every member may be empty: the panel then shows "n/a" or disables the control. The providers are

@@ -52,6 +52,9 @@ struct VfsMount {
     std::filesystem::path host;
     bool read_only = false;
     std::optional<std::uint32_t> block_size;
+    // Installed-game layout: the guest still addresses /PS3_GAME, but the host package root
+    // contains USRDIR and PARAM.SFO directly (NPEA00014/USRDIR).
+    bool strip_ps3_game = false;
 };
 
 // Serves `host` for the exact guest path `guest` (normalised, case-sensitive), ahead of the mounts.

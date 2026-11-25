@@ -8,14 +8,15 @@ Do not label a release as tested until all applicable checks below pass from a c
   verify their SHA-256 pins.
 - No game executable, firmware, key, save, generated C, cache, local path or other user-supplied game
   content appears in tracked files or release archives.
-- The setup validates bad inputs before building, rejects other title/firmware pins, reports each
-  step, runs the local build and tests, and offers to launch the result.
-- The setup and manual build are exercised on a supported Windows x64 system using user-supplied
+- The command builder validates bad inputs before building, rejects other title/firmware pins,
+  reports each step, runs the local build and tests, and creates a desktop shortcut to the result.
+- The CLI and manual build are exercised on a supported Windows x64 system using user-supplied
   files. Record the exact toolchain and test results; do not claim a full playthrough without one.
-- License notices are present and the target-specific analysis/recompiler material has been reviewed
+- License notices are present and target-specific analysis/recompiler material has been reviewed
   before public distribution.
 - Release archives contain only the project and permitted dependencies. Publish SHA-256 checksums,
   privacy notes, supported-input requirements, status and troubleshooting guidance.
 
-The source-only state of this repository has not yet passed the native Windows build and game-run
-checks; see [Status](status.md).
+The `0.1.0-alpha.1` source-and-builder release passed the Windows native build and `game_boot` test
+with user-supplied inputs. It is not a playable binary release, and a complete playthrough has not
+been verified; see [Status](status.md).

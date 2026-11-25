@@ -434,13 +434,14 @@ std::expected<VfsLayout, std::string> composeVfsLayout(const VfsConfigFile* conf
     }
 
     std::error_code ec;
-    // The /app_home that --game-dir or "game_dir" derives may be absent (a game directory without
-    // PS3_GAME/USRDIR still starts); one spelled out in "mounts" must exist.
+    // The /app_home derived from --game-dir may be absent (a game directory without its usrdir still
+    // starts); one spelled out in "mounts" must exist.
     const auto bdvd = std::ranges::find(layout.mounts, "dev_bdvd", &VfsMount::name);
     for (const VfsMount& mount : layout.mounts) {
         const stdfs::file_status status = stdfs::status(mount.host, ec);
         const bool derived_app_home = mount.name == "app_home" && bdvd != layout.mounts.end() &&
-                                      mount.host == bdvd->host / "PS3_GAME" / "USRDIR";
+                                      (mount.host == bdvd->host / "PS3_GAME" / "USRDIR" ||
+                                       mount.host == bdvd->host / "USRDIR");
         if (stdfs::exists(status) ? !stdfs::is_directory(status) : mount.read_only && !derived_app_home) {
             return fail("/{}: host directory {} {}", mount.name, mount.host.string(),
                         stdfs::exists(status) ? "is not a directory" : "does not exist");

@@ -4,19 +4,25 @@
 // touch only guest memory, the commit map and logging (own mutexes). Printing to stdout and abort stay under the lock.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <format>
 #include <string>
+#include <atomic>
+#include <thread>
+#include <utility>
 
 #include "core/fatal.h"
 #include "core/guest_memory.h"
 #include "core/log.h"
 #include "core/reservation.h"
+#include "core/threads.h"
 #include "sshd/ppu_context.h"
 #include "hle/guest_printf.h"
 #include "hle/hle.h"
+#include "spu/spu_census.h"
 
 namespace sshd {
 namespace {
@@ -199,6 +205,47 @@ void sysAbort(SshdPpuContext* ctx, std::uint8_t* base) {
     writeStdout(text);
     // A windowed build has no console to print to, so keep the abort text in the log as well.
     if (!text.empty()) logError("sshd: abort: {}", text);
+    if (text.find("SPURS is aborted") != std::string::npos) {
+        // libsre raises this once the SPURS instance has been shut down, and keeps raising it from
+        // the handler loop: returning there spins, so the handler thread ends instead.
+        static std::atomic<bool> reported{false};
+        const bool first = !reported.exchange(true);
+        const auto kernelState = [](const std::vector<std::string>& state) {
+            std::pair<int, bool> result{0, false};
+            for (const std::string& line : state) {
+                if (line.find("CellSpursKernel") == std::string::npos) continue;
+                result.first++;
+                if (line.find("SPU_RdEventStat") == std::string::npos) result.second = true;
+            }
+            return result;
+        };
+        const std::vector<std::string> spu_state = spuCensusLines();
+        const auto [kernels, kernels_faulted] = kernelState(spu_state);
+        if (first) {
+            for (const std::string& line : spu_state) logError("sshd: abort: spu {}", line);
+            GuestFrame frames[kMaxGuestFrames];
+            const std::size_t frames_used = walkGuestStack(*ctx, base, frames, kMaxGuestFrames);
+            for (std::size_t i = 0; i < frames_used; i++) {
+                logError("sshd: abort: caller lr {:#010x} in function {:#010x}", frames[i].lr, frames[i].function);
+            }
+        }
+        if (kernels > 0) {
+            // A kernel may still be finishing its current task when libsre reports that SPURS is aborted.
+            // The census is a snapshot, so don't turn an ordinary shutdown race into a fatal guest abort:
+            // the previous sample showed the active particle/mesh kernels becoming idle within ~120 ms.
+            // Keep the grace period bounded so a genuinely stuck SPU still fails promptly.
+            auto state = std::pair{kernels, kernels_faulted};
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+            while (state.second && std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                state = kernelState(spuCensusLines());
+            }
+            if (state.first > 0 && !state.second) {
+                logWarn("sshd: abort: SPURS shutdown settled with every kernel idle; ending the handler thread");
+                exitCurrentThread(0);
+            }
+        }
+    }
     stopProcess(ExitCode::Fatal, std::format("sshd: stop: abort from {:#010x} (sysPrxForUser 0x9fb6228e)",
                                              static_cast<std::uint32_t>(ctx->lr)));
 }

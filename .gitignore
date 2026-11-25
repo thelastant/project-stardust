@@ -37,21 +37,43 @@ CMakeUserPresets.json
 
 # A hand-made sshd_game config in the repository root holds local paths
 /config.json
+/config/launcher-state.json
 
 # Generated analysis output and user-supplied game binaries
 /generated/
+/ProjectStardust/
+/NPEA00014/
+/saves/
+/cache/
+/Logs/
+/logs/
+/data/
+/output/
+/inputs/
+/tools/toolchain/
 /game/
 /dev/generated/
 /dev/saves/
 /dev/cache/
 /dev/caches/
 *.elf
+*.ELF
 *.self
+*.SELF
 *.sprx
+*.SPRX
 *.prx
+*.PRX
 *.sdat
+*.SDAT
 *.edat
+*.EDAT
+*.pup
+*.PUP
 EBOOT.BIN
+EBOOT.ELF
+ICON0.PNG
+PIC0.PNG
 __pycache__/
 *.pyc
 *.pyo

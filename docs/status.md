@@ -8,6 +8,7 @@ results have not been reproduced from this clean project copy, and a full playth
 verified. Graphics fidelity remains an active area of work. Treat a successful build or boot as
 evidence only for that run, not as a compatibility guarantee.
 
-The guided setup runs the tests enabled by the project after building. On Windows, this environment
-does not currently have PowerShell 7, so the complete native build and game boot tests could not be
-verified here.
+The command-line builder was verified on Windows with Visual Studio 2026 and firmware 4.93. The
+52-test CTest run passed, including `game_boot`; two optional SPU LZMA tests were skipped because
+their external fixture was unavailable. A full playthrough and graphics fidelity have not been
+verified.
