@@ -41,8 +41,9 @@ cannot determine whether a particular user's acquisition or use is lawful.
 
 1. Clone the repository and its source submodules.
 2. Install the Windows development prerequisites listed in [Building](building.md).
-3. Run `run.cmd`, then select a matching decrypted `EBOOT.ELF` and PS3 firmware 4.93
-   `PS3UPDAT.PUP` from files the user is entitled to use.
+3. Run `run.cmd`, then select the decrypted `EBOOT.ELF` for **NPEA00014 game update 6.00** and
+   PS3 firmware 4.93 `PS3UPDAT.PUP` from files the user is entitled to use. These are distinct
+   version requirements.
 4. The scripts validate inputs, fetch pinned build dependencies, generate the title code locally,
    build and run the tests, and write the local player folder under ignored `ProjectStardust/`.
 

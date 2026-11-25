@@ -15,7 +15,9 @@ machine code into generated C. A native C/C++ runtime supplies the host implemen
 services and graphics/audio facilities needed by the title. CMake combines the handwritten runtime,
 generated code, and permitted libraries into a Windows executable.
 
-The supported executable and firmware revisions are pinned in `config/target.json`. A build or a
+The supported game executable is **NPEA00014 game update 6.00**; the required PS3 firmware is **4.93**.
+These are separate version requirements. `config/target.json` pins the exact executable by size and
+SHA-256 and pins the firmware-derived components. A build or a
 successful boot only demonstrates that particular run; it does not establish a complete playthrough
 or full rendering compatibility. The gameplay hang reported for the alpha release remains unresolved.
 
@@ -61,7 +63,8 @@ Git submodule gitlinks listed below.
 ## 3. Conversion and build process
 
 The supported Windows entry point is `run.cmd`, which invokes `tools/build_game.py`. That builder
-accepts the user's decrypted `NPEA00014\USRDIR\EBOOT.ELF` and firmware 4.93 `PS3UPDAT.PUP`; the
+accepts the user's decrypted `NPEA00014` game update 6.00 `USRDIR\EBOOT.ELF` and firmware 4.93
+`PS3UPDAT.PUP`; the
 builder validates and stages local copies and does not modify the original files.
 
 The high-level sequence is:

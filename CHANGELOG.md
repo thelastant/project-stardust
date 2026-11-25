@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Clarify that the supported game executable is Super Stardust HD NPEA00014 update 6.00, separate
+  from the required PS3 firmware 4.93, and document the pinned EBOOT hash.
+
 ## 0.1.0-alpha.2 — 2026-11-25
 
 - Use the user's NPEA00014 `ICON0.PNG` and `PIC0.PNG` in the locally built executable; use its icon

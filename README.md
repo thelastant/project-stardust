@@ -12,8 +12,9 @@ a complete playthrough has not been verified.
 
 ## Build from Command Prompt
 
-Use the command-prompt script. It asks only for the decrypted `EBOOT.ELF` and PS3 firmware **4.93**
-`PS3UPDAT.PUP`. You can paste or drag paths into the prompts, or pass both paths as arguments:
+Use the command-prompt script. It asks for the decrypted `EBOOT.ELF` from **Super Stardust HD
+NPEA00014 updated to game version 6.00**, and the PS3 firmware **4.93** `PS3UPDAT.PUP`. You can
+paste or drag paths into the prompts, or pass both paths as arguments:
 
 ```bat
 run.cmd "C:\path\to\EBOOT.ELF" "C:\path\to\PS3UPDAT.PUP"
@@ -67,16 +68,17 @@ reference repositories, tools, pinned dependencies, tests, and release boundarie
 
 ## Supported inputs
 
-- The decrypted `EBOOT.ELF` already updated to the version supported by this project. Keep it with
-  your own game files; the command stages a local copy into `ProjectStardust\NPEA00014\`.
+- The decrypted `EBOOT.ELF` from **Super Stardust HD NPEA00014 game update 6.00**. Keep it with your
+  own game files; the command stages a local copy into `ProjectStardust\NPEA00014\`. The executable
+  must match the size and SHA-256 pin in `config/target.json`.
 - PlayStation 3 system software **4.93**, supplied as `PS3UPDAT.PUP`
 - Windows x64 development environment: Visual Studio 2026 with the C++ tools and Windows SDK,
   LunarG Vulkan SDK, Python 3.10+, Git, and PowerShell 7. LLVM/Clang, CMake and Ninja
   come from `tools/fetch-toolchain.ps1`. See [Windows requirements](docs/building.md#windows).
 
-The base executable is checked against the target pin. Firmware contents and extracted components
-are validated by the project's decrypt tool. Other game IDs, executable updates, and firmware
-versions are not supported.
+The game update 6.00 executable is checked against the target pin. Firmware 4.93 contents and
+extracted components are validated by the project's decrypt tool. Other game IDs, executable
+updates, and firmware versions are not supported.
 
 ## Project status
 

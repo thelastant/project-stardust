@@ -3,7 +3,7 @@
 Do not label a release as tested until all applicable checks below pass from a clean checkout.
 
 - The target manifest, PPU database, relocated libsre database, SPU image registry and per-image
-  records all agree on the pinned NPEA00014 executable and firmware 4.93.
+  records all agree on the pinned NPEA00014 game update 6.00 executable and firmware 4.93.
 - A clean Git clone initializes every dependency at a recorded commit. Dependency fetch scripts
   verify their SHA-256 pins.
 - No game executable, firmware, key, save, generated C, cache, local path or other user-supplied game

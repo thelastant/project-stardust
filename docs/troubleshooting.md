@@ -14,9 +14,10 @@ Restart setup after installing or changing `PATH` or `VULKAN_SDK`.
 
 ## The EBOOT pin does not match
 
-Choose your decrypted, already-updated file named `EBOOT.ELF`; its folder does not matter. It must
-match the project's supported update version and NPEA00014 executable pin. Other updates, regions,
-and modified executables are unsupported.
+Choose your decrypted `EBOOT.ELF` from **Super Stardust HD NPEA00014 game update 6.00**; its folder
+does not matter. It must match the project's NPEA00014 size and SHA-256 pin in `config/target.json`.
+PS3 firmware 4.93 is a separate required input. Other game updates, regions, and modified
+executables are unsupported.
 
 ## Firmware validation fails
 
