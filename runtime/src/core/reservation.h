@@ -88,13 +88,10 @@ public:
 
     // PUTLLC of the line that contains `ea`; `src` holds the 128 new bytes. Fails at once when the
     // reservation is gone, names another line, or the stripe version moved; fails when the line differs
-    // from the snapshot. On success every aligned 8-byte chunk whose new value differs from the snapshot
-    // is written with one atomic store; chunks it leaves unchanged are never touched. The reservation is
-    // cleared in every case.
-    //
-    // Known race window: a plain store that lands after the snapshot compare and before the chunk store
-    // is overwritten when it hits a chunk this PUTLLC changes. The window is a few dozen instructions.
-    // Plain stores before the compare make the PUTLLC fail; plain stores to other chunks are kept.
+    // from the snapshot. On success every changed chunk is committed with compare-and-swap (8-byte CAS
+    // when one chunk changes; minimal aligned sub-word CAS per chunk when several chunks change) so a
+    // concurrent plain PPU store to a neighbouring byte is never overwritten by stale snapshot bytes.
+    // The reservation is cleared in every case.
     bool putllc(std::uint8_t* base, std::uint32_t ea, const std::uint8_t* src, Reservation& res);
 
     // PUTLLUC: unconditional write of the 128-byte line that contains `ea`. Always invalidates the

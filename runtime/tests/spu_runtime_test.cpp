@@ -457,14 +457,25 @@ void testCompareWindow() {
     CHECK(mem.bytes[0] == 0x55);
     CHECK(mem.bytes[0x48] == 0x77);  // survived: the chunk was not rewritten
 
-    // A plain store to a byte of a chunk the PUTLLC rewrites is lost: the chunk store carries the
-    // snapshot value of that byte. This is the exposure the design documents.
+    // A plain store to a byte of a chunk the single-chunk PUTLLC rewrites is caught by the 8-byte CAS:
+    // PUTLLC fails cleanly and the plain store survives.
     store = WindowStore{mem.bytes + 0x03, 0x99};  // same chunk as byte 0
     table.getllar(mem.base(), 0, ls, res);
     ls[0] = 0x56;
+    CHECK(!table.putllc(mem.base(), 0, ls, res));
+    CHECK(mem.bytes[0] == 0x55);
+    CHECK(mem.bytes[0x03] == 0x99);  // survived
+
+    // A multi-chunk PUTLLC writes only the minimal changed span of each chunk, so a concurrent plain store
+    // to a neighbouring byte in the same 8-byte chunk survives untouched.
+    store = WindowStore{mem.bytes + 0x01, 0xAB};  // byte 1, neighbour of byte 0 in chunk 0
+    table.getllar(mem.base(), 0, ls, res);
+    ls[0] = 0x57;
+    ls[0x10] = 0x67;  // chunk 2
     CHECK(table.putllc(mem.base(), 0, ls, res));
-    CHECK(mem.bytes[0] == 0x56);
-    CHECK(mem.bytes[0x03] == 0);  // overwritten
+    CHECK(mem.bytes[0] == 0x57);
+    CHECK(mem.bytes[0x01] == 0xAB);  // survived
+    CHECK(mem.bytes[0x10] == 0x67);
     table.setCompareHook(nullptr, nullptr);
 }
 
@@ -2436,8 +2447,7 @@ int runStopChild(std::string_view mode) {
     } else if (mode == "--spu-non-link-child") {
         sshd::copyToLs(thread, guest.data(), kEaA, 0x5000, 0x100);
         target = 0x5000;
-    } else if (mode == "--spu-relocated-fmod-raw-child" ||
-               mode == "--spu-relocated-fmod-adpcm-child") {
+    } else if (mode == "--spu-relocated-fmod-raw-child" || mode == "--spu-relocated-fmod-adpcm-child") {
         SshdSpuImageInfo relocated = kSynthImages[0];
         relocated.name = mode == "--spu-relocated-fmod-raw-child" ? "eboot_fmod_raw" : "eboot_fmod_adpcm";
         sshd::registerSpuImages(&relocated, 1);
@@ -2456,8 +2466,7 @@ int runStopChild(std::string_view mode) {
     }
     SSHD_VR_W(thread.context().gpr[4], 0) = target;
     sshd::runSpu(thread, kLsGoto);
-    if (mode == "--spu-relocated-fmod-raw-child" ||
-        mode == "--spu-relocated-fmod-adpcm-child") {
+    if (mode == "--spu-relocated-fmod-raw-child" || mode == "--spu-relocated-fmod-adpcm-child") {
         return SSHD_VR_W(thread.context().gpr[3], 0) == kHops ? 0 : 99;
     }
     return 0;  // not reached: the stop ends the process
@@ -3962,8 +3971,7 @@ struct Lv2Fixture {
         // sys_spu_image: {type, entry, segments, count}; three segments: code, fill, and an empty copy.
         const std::uint32_t segs = scratch + kLvSegments;
         const std::uint32_t words[] = {
-                1, kLvMain, kLvCodeSize, 0, scratch + kLvCode, 0,
-                2, kLvDataLs, 0x100, 0, kLvFillValue, 0,
+                1, kLvMain, kLvCodeSize, 0, scratch + kLvCode, 0, 2, kLvDataLs, 0x100, 0, kLvFillValue, 0,
         };
         for (std::uint32_t i = 0; i < 12; i++) sshdWrite32(base, segs + 4 * i, words[i]);
         sshdWrite32(base, scratch + kLvImage, 0);

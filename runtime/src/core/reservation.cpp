@@ -35,15 +35,64 @@ std::uint64_t loadChunk(const std::uint8_t* p) {
     return __atomic_load_n(reinterpret_cast<const std::uint64_t*>(p), __ATOMIC_RELAXED);
 }
 
-void storeChunk(std::uint8_t* p, std::uint64_t value) {
-    __atomic_store_n(reinterpret_cast<std::uint64_t*>(p), value, __ATOMIC_RELEASE);
-}
-
 // Unaligned read of a caller buffer (LS data, snapshot): no atomicity needed, the thread owns it.
 std::uint64_t readBuffer(const std::uint8_t* p) {
     std::uint64_t value;
     std::memcpy(&value, p, sizeof(value));
     return value;
+}
+
+// Describes the smallest naturally aligned sub-word (1, 2, 4, or 8 bytes) inside an 8-byte chunk that covers
+// every byte differing between `old_bytes` and `new_bytes`. Writing only that span with CAS prevents a
+// multi-chunk PUTLLC from clobbering concurrent plain PPU stores to neighbouring bytes in the same chunk.
+struct ChunkSpan {
+    std::uint32_t offset = 0;  // 0..7 within the 8-byte chunk
+    std::uint32_t size = 8;    // 1, 2, 4, or 8
+};
+
+ChunkSpan minimalChangedSpan(const std::uint8_t* old_bytes, const std::uint8_t* new_bytes) {
+    std::uint32_t first = 8, last = 0;
+    for (std::uint32_t b = 0; b < 8; b++) {
+        if (old_bytes[b] != new_bytes[b]) {
+            if (b < first) first = b;
+            last = b;
+        }
+    }
+    if (first == last) return {first, 1};
+    if ((first & ~1u) == (last & ~1u)) return {first & ~1u, 2};
+    if ((first & ~3u) == (last & ~3u)) return {first & ~3u, 4};
+    return {0, 8};
+}
+
+bool casSpan(std::uint8_t* dst, const std::uint8_t* expected_bytes, const std::uint8_t* desired_bytes,
+             std::uint32_t size) {
+    switch (size) {
+        case 1: {
+            std::uint8_t exp = *expected_bytes;
+            return __atomic_compare_exchange_n(dst, &exp, *desired_bytes, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
+        }
+        case 2: {
+            std::uint16_t exp, des;
+            std::memcpy(&exp, expected_bytes, 2);
+            std::memcpy(&des, desired_bytes, 2);
+            return __atomic_compare_exchange_n(reinterpret_cast<std::uint16_t*>(dst), &exp, des, false,
+                                               __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
+        }
+        case 4: {
+            std::uint32_t exp, des;
+            std::memcpy(&exp, expected_bytes, 4);
+            std::memcpy(&des, desired_bytes, 4);
+            return __atomic_compare_exchange_n(reinterpret_cast<std::uint32_t*>(dst), &exp, des, false,
+                                               __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
+        }
+        default: {
+            std::uint64_t exp, des;
+            std::memcpy(&exp, expected_bytes, 8);
+            std::memcpy(&des, desired_bytes, 8);
+            return __atomic_compare_exchange_n(reinterpret_cast<std::uint64_t*>(dst), &exp, des, false,
+                                               __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
+        }
+    }
 }
 
 // The processor's spin-wait hint.
@@ -298,14 +347,48 @@ bool ReservationTable::putllc(std::uint8_t* base, std::uint32_t ea, const std::u
         }
     }
     if (compare_hook_ != nullptr) compare_hook_(compare_hook_arg_);
-    // Only the chunks written are checked: a line can hold an lwmutex next to an SPU atomic target, and an
-    // update of the neighbour never touches the lwmutex words. One hit per PUTLLC, however many chunks it writes.
-    bool watch_hit = !lwmutexWatchEnabled();
+    // Collect modified chunks first so we can commit with CAS and never overwrite a concurrent plain PPU store.
+    std::uint32_t changed_indices[kChunkCount];
+    ChunkSpan changed_spans[kChunkCount];
+    std::uint32_t changed_count = 0;
     for (std::uint32_t i = 0; i < kChunkCount; i++) {
-        const std::uint64_t value = readBuffer(src + 8 * i);
-        if (value == readBuffer(res.snapshot + 8 * i)) continue;
-        if (!watch_hit) watch_hit = lwmutexWatchCheck(LwmutexWatchKind::SpuPutllc, line + 8 * i, 8, 0);
-        storeChunk(host + 8 * i, value);
+        if (readBuffer(src + 8 * i) == readBuffer(res.snapshot + 8 * i)) continue;
+        changed_indices[changed_count] = i;
+        changed_spans[changed_count] = minimalChangedSpan(res.snapshot + 8 * i, src + 8 * i);
+        changed_count++;
+    }
+    if (changed_count == 1) {
+        const std::uint32_t i = changed_indices[0];
+        if (lwmutexWatchEnabled()) lwmutexWatchCheck(LwmutexWatchKind::SpuPutllc, line + 8 * i, 8, 0);
+        if (!casSpan(host + 8 * i, res.snapshot + 8 * i, src + 8 * i, 8)) {
+            unlockClean(s);
+            countPutllcFail(PutllcFail::Data);
+            return false;
+        }
+    } else if (changed_count > 1) {
+        // Only the chunks written are checked: a line can hold an lwmutex next to an SPU atomic target, and an
+        // update of the neighbour never touches the lwmutex words. One hit per PUTLLC, however many chunks it writes.
+        bool watch_hit = !lwmutexWatchEnabled();
+        std::uint32_t committed = 0;
+        for (; committed < changed_count; committed++) {
+            const std::uint32_t i = changed_indices[committed];
+            const ChunkSpan span = changed_spans[committed];
+            const std::uint32_t byte_off = 8 * i + span.offset;
+            if (!watch_hit) watch_hit = lwmutexWatchCheck(LwmutexWatchKind::SpuPutllc, line + 8 * i, 8, 0);
+            if (!casSpan(host + byte_off, res.snapshot + byte_off, src + byte_off, span.size)) {
+                // Roll back earlier minimal spans only if they still hold what we wrote, so concurrent plain stores
+                // are not clobbered.
+                for (std::uint32_t r = committed; r-- > 0;) {
+                    const std::uint32_t ri = changed_indices[r];
+                    const ChunkSpan rspan = changed_spans[r];
+                    const std::uint32_t roff = 8 * ri + rspan.offset;
+                    casSpan(host + roff, src + roff, res.snapshot + roff, rspan.size);
+                }
+                unlockClean(s);
+                countPutllcFail(PutllcFail::Data);
+                return false;
+            }
+        }
     }
     unlockWithWrite(s, line, WriterKind::Putllc);
     return true;
@@ -381,15 +464,17 @@ bool ReservationTable::storeConditional(std::uint8_t* base, std::uint32_t ea, st
     const bool version_ok = lock(s) == expected_version;
     bool ok = false;
     if (version_ok) {
-        // The word compare still matters: plain stores to the word do not bump the version.
+        // CAS catches plain stores that land concurrently on the target word without bumping the stripe version.
         if (size == 4) {
             auto* target = reinterpret_cast<std::uint32_t*>(base + ea);
-            ok = std::byteswap(__atomic_load_n(target, __ATOMIC_RELAXED)) == static_cast<std::uint32_t>(expected);
-            if (ok) __atomic_store_n(target, std::byteswap(static_cast<std::uint32_t>(value)), __ATOMIC_RELEASE);
+            std::uint32_t exp_be = std::byteswap(static_cast<std::uint32_t>(expected));
+            ok = __atomic_compare_exchange_n(target, &exp_be, std::byteswap(static_cast<std::uint32_t>(value)), false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
         } else {
             auto* target = reinterpret_cast<std::uint64_t*>(base + ea);
-            ok = std::byteswap(__atomic_load_n(target, __ATOMIC_RELAXED)) == expected;
-            if (ok) __atomic_store_n(target, std::byteswap(value), __ATOMIC_RELEASE);
+            std::uint64_t exp_be = std::byteswap(expected);
+            ok = __atomic_compare_exchange_n(target, &exp_be, std::byteswap(value), false, __ATOMIC_ACQ_REL,
+                                             __ATOMIC_RELAXED);
         }
     }
     if (ok) {
